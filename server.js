@@ -941,11 +941,16 @@ app.get('/status/:sessionId', (req, res) => {
 app.get('/download/:sessionId', (req, res) => {
     const sessionId = req.params.sessionId;
     const session = sessions[sessionId];
-    if (!session || session.status !== 'completed') {
-        return res.status(400).json({ error: 'Session not ready for download' });
+
+    // Allow download if session completed OR output dir exists on disk (survives redeployment)
+    const outputDir = path.join(OUTPUT_DIR, sessionId);
+    if (!fs.existsSync(outputDir)) {
+        return res.status(400).json({ error: 'Session output not found' });
+    }
+    if (session && session.status !== 'completed') {
+        return res.status(400).json({ error: 'Session still processing' });
     }
 
-    const outputDir = path.join(OUTPUT_DIR, sessionId);
     const zipFilename = `car_photos_${sessionId}.zip`;
 
     res.setHeader('Content-Type', 'application/zip');
