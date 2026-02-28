@@ -142,8 +142,9 @@ export default function SortPage() {
         if (data.new_results?.length) {
           cursorRef.current += data.new_results.length;
           setStats(prev => {
-            const newResults = [...prev.results, ...data.new_results.map((r: { file: string; color: string; confidence: number }) => ({
-              file: r.file, color: r.color, confidence: r.confidence ?? 0.85,
+            const confMap: Record<string, number> = { high: 0.95, medium: 0.75, low: 0.5, none: 0.3 };
+            const newResults = [...prev.results, ...data.new_results.map((r: { file: string; color: string; confidence: string | number }) => ({
+              file: r.file, color: r.color, confidence: typeof r.confidence === 'number' ? r.confidence : (confMap[r.confidence] ?? 0.5),
             }))];
             const elapsed = (Date.now() - prev.startTime) / 1000;
             const processed = data.processed || newResults.length;

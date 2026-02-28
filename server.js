@@ -653,7 +653,7 @@ async function analyzeImageColor(imagePath) {
         };
 
     } catch (err) {
-        console.error(`Error analyzing ${imagePath}:`, err.message);
+        console.error(`Error analyzing ${imagePath}:`, err.message, err.stack);
         return { rgb: [0,0,0], category: 'unknown', hex: '#000000', confidence: 'none' };
     }
 }
