@@ -1061,10 +1061,10 @@ app.get('/health', (req, res) => {
 // ─── Serve output images for browsing ───
 app.use('/output', express.static(OUTPUT_DIR));
 
-// ─── Start server after loading AI model ───
-loadModel().then(() => {
-    app.listen(PORT, () => {
-        console.log(`Car Photo Color Sorter running at http://localhost:${PORT}`);
+// ─── Start server immediately, load AI model in background ───
+app.listen(PORT, () => {
+    console.log(`Car Photo Color Sorter running at http://localhost:${PORT}`);
+    loadModel().then(() => {
         console.log(`ONNX model: ${onnxSession ? 'loaded' : 'NOT loaded (fallback mode)'}`);
     });
 });
