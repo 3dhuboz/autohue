@@ -14,7 +14,7 @@ const { pipeline, env: transformersEnv } = require('@xenova/transformers');
 transformersEnv.cacheDir = path.join(__dirname, 'models', 'transformers-cache');
 
 const app = express();
-const PORT = process.env.WORKER_PORT || 3001;
+const PORT = process.env.PORT || process.env.WORKER_PORT || 3001;
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const OUTPUT_DIR = path.join(__dirname, 'output');

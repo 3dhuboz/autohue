@@ -28,8 +28,8 @@ uploads/
 output/
 temp/
 
-# ONNX model (too large for git)
-models/*.onnx
+# ONNX transformer cache (downloaded at runtime)
+models/transformers-cache/
 
 # IDE
 .vscode/
