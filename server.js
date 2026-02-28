@@ -12,15 +12,19 @@ const ort = require('onnxruntime-node');
 const app = express();
 const PORT = process.env.PORT || process.env.WORKER_PORT || 3001;
 
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const OUTPUT_DIR = path.join(__dirname, 'output');
-const THUMB_DIR = path.join(__dirname, 'public', 'thumbs');
+// Use STORAGE_ROOT env var for persistent volume (Railway), falls back to project dir
+const STORAGE_ROOT = process.env.STORAGE_ROOT || __dirname;
+const UPLOAD_DIR = path.join(STORAGE_ROOT, 'uploads');
+const OUTPUT_DIR = path.join(STORAGE_ROOT, 'output');
+const THUMB_DIR = path.join(STORAGE_ROOT, 'thumbs');
 
 [UPLOAD_DIR, OUTPUT_DIR, THUMB_DIR].forEach(dir => fs.mkdirSync(dir, { recursive: true }));
+console.log(`[storage] Root: ${STORAGE_ROOT} (${process.env.STORAGE_ROOT ? 'persistent volume' : 'local filesystem'})`);
 
 const sessions = {};
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/thumbs', express.static(THUMB_DIR));
 app.use(express.json());
 
 // ═══════════════════════════════════════════════════════════════════════════
