@@ -7,6 +7,23 @@ export const metadata: Metadata = {
   title: 'AutoHue — AI Car Photo Color Sorter',
   description: 'Sort thousands of car photos by color in seconds. AI-powered detection, instant classification, professional results.',
   keywords: ['car photos', 'color sorting', 'AI', 'automotive photography', 'batch processing'],
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
+  openGraph: {
+    title: 'AutoHue — AI Car Photo Color Sorter',
+    description: 'Sort thousands of car photos by color in seconds. AI-powered detection, instant classification, professional results.',
+    images: [{ url: '/logo.png', width: 1024, height: 683, alt: 'AutoHue Logo' }],
+    siteName: 'AutoHue',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AutoHue — AI Car Photo Color Sorter',
+    description: 'Sort thousands of car photos by color in seconds.',
+    images: ['/logo.png'],
+  },
 };
 
 export default function RootLayout({

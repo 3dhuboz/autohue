@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -21,10 +22,8 @@ export default function NavBar() {
     <header className="border-b border-white/5 glass-card-solid sticky top-0 z-50">
       <div className="container mx-auto px-6 max-w-6xl flex items-center justify-between h-14">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-racing-600 to-racing-800 flex items-center justify-center">
-            <i className="fas fa-car-side text-white text-xs" />
-          </div>
+        <Link href="/" className="flex items-center gap-2">
+          <Image src="/logo.png" alt="AutoHue" width={36} height={36} className="w-9 h-9 object-contain" priority />
           <span className="font-heading text-lg font-bold">
             <span className="text-white">Auto</span>
             <span className="text-racing-500">Hue</span>

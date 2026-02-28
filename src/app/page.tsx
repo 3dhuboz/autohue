@@ -69,10 +69,8 @@ export default function LandingPage() {
       {/* ═══ NAV ═══ */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-card-solid border-b border-white/5">
         <div className="container mx-auto px-6 max-w-6xl flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-racing-600 to-racing-800 flex items-center justify-center shadow-lg">
-              <i className="fas fa-car-side text-white text-sm" />
-            </div>
+          <div className="flex items-center gap-2">
+            <Image src="/logo.png" alt="AutoHue" width={36} height={36} className="w-9 h-9 object-contain" priority />
             <span className="font-heading text-xl font-bold">
               <span className="text-white">Auto</span>
               <span className="text-racing-500">Hue</span>
@@ -397,10 +395,8 @@ export default function LandingPage() {
       <footer className="border-t border-white/5 py-12">
         <div className="container mx-auto px-6 max-w-6xl">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-racing-600 to-racing-800 flex items-center justify-center">
-                <i className="fas fa-car-side text-white text-xs" />
-              </div>
+            <div className="flex items-center gap-2">
+              <Image src="/logo.png" alt="AutoHue" width={32} height={32} className="w-8 h-8 object-contain" />
               <span className="font-heading font-bold">
                 <span className="text-white">Auto</span>
                 <span className="text-racing-500">Hue</span>

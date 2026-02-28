@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -37,10 +38,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="glass-card rounded-3xl p-10 w-full max-w-md red-accent-top animate-fade-up">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-racing-600 to-racing-800 flex items-center justify-center">
-              <i className="fas fa-car-side text-white text-sm" />
-            </div>
+          <Link href="/" className="inline-flex items-center gap-2 mb-6">
+            <Image src="/logo.png" alt="AutoHue" width={36} height={36} className="w-9 h-9 object-contain" />
             <span className="font-heading text-xl font-bold">
               <span className="text-white">Auto</span>
               <span className="text-racing-500">Hue</span>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -52,10 +53,8 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-md animate-fade-up">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-racing-600 to-racing-800 flex items-center justify-center shadow-lg">
-              <i className="fas fa-car-side text-white" />
-            </div>
+          <Link href="/" className="inline-flex items-center gap-2 mb-6">
+            <Image src="/logo.png" alt="AutoHue" width={40} height={40} className="w-10 h-10 object-contain" />
             <span className="font-heading text-2xl font-bold">
               <span className="text-white">Auto</span>
               <span className="text-racing-500">Hue</span>
