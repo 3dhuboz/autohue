@@ -48,6 +48,7 @@ export default function SortPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [sessionId, setSessionId] = useState('');
   const [creditError, setCreditError] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [stats, setStats] = useState<ProcessingStats>({
     processed: 0, total: 0, currentFile: '', startTime: 0,
     imagesPerSecond: 0, avgConfidence: 0, timeSavedSeconds: 0,
@@ -88,6 +89,7 @@ export default function SortPage() {
   const startProcessing = async () => {
     if (files.length === 0) return;
     setCreditError('');
+    setUploading(true);
 
     // Check credits before uploading
     try {
@@ -103,6 +105,7 @@ export default function SortPage() {
       }
     } catch {
       setCreditError('Could not verify credits. Please try again.');
+      setUploading(false);
       return;
     }
 
@@ -129,6 +132,7 @@ export default function SortPage() {
       startPolling(data.session_id);
     } catch (err: unknown) {
       setCreditError(err instanceof Error ? err.message : 'Processing worker is not available.');
+      setUploading(false);
     }
   };
 
@@ -284,9 +288,18 @@ export default function SortPage() {
                   )}
                 </div>
                 <div className="flex justify-center">
-                  <button onClick={startProcessing} className="btn-racing px-10 py-4 rounded-2xl text-lg shadow-xl glow-red">
-                    <i className="fas fa-flag-checkered mr-2" />
-                    Start Sorting
+                  <button onClick={startProcessing} disabled={uploading} className="btn-racing px-10 py-4 rounded-2xl text-lg shadow-xl glow-red disabled:opacity-60 disabled:cursor-wait">
+                    {uploading ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin mr-2" />
+                        Uploading & Starting...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-flag-checkered mr-2" />
+                        Start Sorting
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
