@@ -746,16 +746,30 @@ export default function SortPage() {
                     <i className="fas fa-times" />
                   </button>
                 </div>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-2">
                   {stats.results.filter(r => r.color === expandedColor).map((result, idx) => (
-                    <div key={`${result.file}-${idx}`} className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3">
-                      <i className="fas fa-image text-white/20 text-sm" />
-                      <span className="text-sm text-white/70 truncate flex-1">{result.file}</span>
+                    <div key={`${result.file}-${idx}`} className="flex items-center gap-3 bg-white/5 rounded-xl px-3 py-2">
+                      {/* Thumbnail */}
+                      <div className="w-16 h-12 rounded-lg overflow-hidden bg-black/40 shrink-0">
+                        {result.thumb ? (
+                          <img
+                            src={`${WORKER_BASE}${result.thumb}`}
+                            alt={result.file}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <i className="fas fa-car text-white/10" />
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs text-white/60 truncate flex-1">{result.file}</span>
                       <select
                         value={result.color}
                         onChange={(e) => reassignImage(result.file, result.color, e.target.value)}
                         aria-label={`Color for ${result.file}`}
-                        className="bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/80 cursor-pointer focus:outline-none focus:border-racing-500"
+                        className="bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/80 cursor-pointer focus:outline-none focus:border-racing-500 shrink-0"
                       >
                         {Object.entries(COLOR_INFO).map(([key, ci]) => (
                           <option key={key} value={key} className="bg-gray-900 text-white">{ci.label}</option>
