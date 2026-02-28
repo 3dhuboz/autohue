@@ -1124,9 +1124,18 @@ app.delete('/cleanup/:sessionId', (req, res) => {
     res.json({ success: true, cleaned });
 });
 
-// ─── Health check ───
+// ─── Health / diagnostics endpoint ───
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', model: onnxSession ? 'loaded' : 'fallback' });
+    res.json({
+        status: 'ok',
+        onnx: onnxSession ? 'loaded' : 'NOT loaded (fallback mode)',
+        modelPath: MODEL_PATH,
+        modelExists: fs.existsSync(MODEL_PATH),
+        storageRoot: STORAGE_ROOT,
+        storagePersistent: !!process.env.STORAGE_ROOT,
+        uptime: Math.round(process.uptime()) + 's',
+        nyckelConfigured: !!(NYCKEL_CLIENT_ID && NYCKEL_CLIENT_SECRET),
+    });
 });
 
 // ─── Serve output images for browsing ───
