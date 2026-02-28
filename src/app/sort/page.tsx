@@ -66,7 +66,10 @@ export default function SortPage() {
 
   useEffect(() => {
     if (authStatus === 'authenticated') {
-      fetch('/api/credits').then(r => r.json()).then(setCreditsInfo).catch(() => {});
+      fetch('/api/credits')
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then(setCreditsInfo)
+        .catch(() => {});
     }
   }, [authStatus]);
 
