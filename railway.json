@@ -3,9 +3,14 @@
   "build": {
     "builder": "NIXPACKS",
     "nixpacksPlan": {
-      "providers": ["node"]
+      "providers": ["node"],
+      "phases": {
+        "install": {
+          "cmds": ["npm install --omit=dev"]
+        }
+      }
     },
-    "buildCommand": "npm install --omit=dev"
+    "buildCommand": "echo 'Build complete'"
   },
   "deploy": {
     "startCommand": "node server.js",
