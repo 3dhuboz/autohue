@@ -20,10 +20,10 @@ export default function NavBar() {
 
   return (
     <header className="border-b border-white/5 glass-card-solid sticky top-0 z-50">
-      <div className="container mx-auto px-6 max-w-6xl flex items-center justify-between h-14">
+      <div className="container mx-auto px-6 max-w-6xl flex items-center justify-between h-16">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="AutoHue" width={36} height={36} className="w-9 h-9 object-contain" priority />
+          <Image src="/logo.png" alt="AutoHue" width={44} height={44} className="w-11 h-11 object-contain" priority />
           <span className="font-heading text-lg font-bold">
             <span className="text-white">Auto</span>
             <span className="text-racing-500">Hue</span>

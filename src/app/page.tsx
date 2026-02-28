@@ -1,6 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import Image from 'next/image';
 import PricingButton from '@/components/PricingButton';
+import { useState } from 'react';
 
 const FEATURES = [
   { icon: 'fa-bolt', title: 'Lightning Fast', desc: 'Process thousands of photos in minutes, not hours. AI sorts 5-10 images per second.' },
@@ -46,6 +49,26 @@ const STEPS = [
   { num: '03', title: 'Download', desc: 'Get a perfectly organized ZIP with photos sorted into color folders.', icon: 'fa-folder-open' },
 ];
 
+// Interactive color demo cars
+const DEMO_CARS = [
+  { src: 'https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=600&h=400&fit=crop', alt: 'Red sports car', color: 'Red', hex: '#ef4444', fact: 'Red cars account for about 10% of all vehicles on the road' },
+  { src: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&h=400&fit=crop', alt: 'Yellow Porsche', color: 'Yellow', hex: '#eab308', fact: 'Yellow is the rarest car color — less than 2% of cars worldwide' },
+  { src: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=600&h=400&fit=crop', alt: 'Black Porsche 911', color: 'Black', hex: '#334155', fact: 'Black is the 2nd most popular car color globally at ~19%' },
+  { src: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=600&h=400&fit=crop', alt: 'Blue Corvette', color: 'Blue', hex: '#3b82f6', fact: 'Blue cars tend to have higher resale value than average' },
+  { src: 'https://images.unsplash.com/photo-1542362567-b07e54358753?w=600&h=400&fit=crop', alt: 'Orange McLaren', color: 'Orange', hex: '#f97316', fact: 'Orange is a signature color for McLaren and Lamborghini' },
+  { src: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&h=400&fit=crop', alt: 'White classic car', color: 'White', hex: '#e2e8f0', fact: 'White has been the #1 most popular car color for over a decade' },
+];
+
+// Fun facts for the facts section
+const FUN_FACTS = [
+  { icon: 'fa-globe', stat: '39%', label: 'of all cars worldwide are white, grey, or silver', color: 'text-blue-400' },
+  { icon: 'fa-palette', stat: '13+', label: 'distinct color categories detected by our AI', color: 'text-purple-400' },
+  { icon: 'fa-eye', stat: '10M+', label: 'color pixels analyzed per image for accuracy', color: 'text-green-400' },
+  { icon: 'fa-clock', stat: '<1s', label: 'average time to detect, analyze & sort one photo', color: 'text-amber-400' },
+  { icon: 'fa-car', stat: '95%+', label: 'car detection rate even in cluttered backgrounds', color: 'text-red-400' },
+  { icon: 'fa-brain', stat: 'Dual AI', label: 'ONNX neural net + CIE LAB color science combined', color: 'text-indigo-400' },
+];
+
 // Showcase images — high-impact automotive photography from Unsplash
 const HERO_IMAGES = [
   { src: 'https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=600&h=400&fit=crop', alt: 'Red sports car', color: 'Red' },
@@ -64,14 +87,16 @@ const GALLERY_IMAGES = [
 ];
 
 export default function LandingPage() {
+  const [hoveredCar, setHoveredCar] = useState<number | null>(null);
+
   return (
     <div className="min-h-screen">
       {/* ═══ NAV ═══ */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-card-solid border-b border-white/5">
         <div className="container mx-auto px-6 max-w-6xl flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
-            <Image src="/logo.png" alt="AutoHue" width={36} height={36} className="w-9 h-9 object-contain" priority />
-            <span className="font-heading text-xl font-bold">
+          <div className="flex items-center gap-2.5">
+            <Image src="/logo.png" alt="AutoHue" width={48} height={48} className="w-12 h-12 object-contain" priority />
+            <span className="font-heading text-2xl font-bold">
               <span className="text-white">Auto</span>
               <span className="text-racing-500">Hue</span>
             </span>
@@ -104,8 +129,8 @@ export default function LandingPage() {
             priority
             unoptimized
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a] via-[#0a0a0aee] to-[#0a0a0a]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-racing-900/40 via-transparent to-racing-900/20" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#111113] via-[#111113dd] to-[#111113]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-racing-900/30 via-transparent to-racing-900/15" />
         </div>
 
         <div className="container mx-auto px-6 max-w-6xl relative z-10">
@@ -123,7 +148,7 @@ export default function LandingPage() {
               <span className="text-white/40">Instantly.</span>
             </h1>
 
-            <p className="text-lg md:text-xl text-white/50 max-w-xl mx-auto mb-10 animate-fade-up anim-delay-1">
+            <p className="text-lg md:text-xl text-white/60 max-w-xl mx-auto mb-10 animate-fade-up anim-delay-1">
               Upload thousands of car photos and let AI sort them into color folders
               in minutes. Built for automotive photographers who value their time.
             </p>
@@ -270,42 +295,107 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══ SHOWCASE — Color sorting demo ═══ */}
+      {/* ═══ INTERACTIVE COLOR DEMO ═══ */}
       <section className="py-24 relative overflow-hidden">
         <div className="container mx-auto px-6 max-w-6xl">
-          <div className="glass-card rounded-3xl overflow-hidden red-accent-top">
-            <div className="grid md:grid-cols-2 gap-0">
-              {/* Left — image */}
-              <div className="relative h-72 md:h-auto min-h-[320px]">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold mb-4">
+              <i className="fas fa-mouse-pointer" /> Interactive Demo
+            </div>
+            <h2 className="text-3xl md:text-4xl font-heading font-black mb-4">
+              Hover to See Our <span className="text-racing-500">AI in Action</span>
+            </h2>
+            <p className="text-white/40 max-w-md mx-auto">Move your mouse over any car — our AI instantly identifies the color. This is exactly what happens during sorting.</p>
+          </div>
+
+          {/* Demo grid */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+            {DEMO_CARS.map((car, i) => (
+              <div
+                key={i}
+                className="group relative rounded-2xl overflow-hidden aspect-[3/2] cursor-crosshair"
+                onMouseEnter={() => setHoveredCar(i)}
+                onMouseLeave={() => setHoveredCar(null)}
+              >
                 <Image
-                  src="https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?w=800&h=600&fit=crop"
-                  alt="Row of colorful cars"
+                  src={car.src}
+                  alt={car.alt}
                   fill
-                  className="object-cover"
+                  className="object-cover transition-transform duration-500 group-hover:scale-105"
                   unoptimized
                 />
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-[#0a0a0a] md:block hidden" />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] to-transparent md:hidden" />
-              </div>
-              {/* Right — copy */}
-              <div className="p-8 md:p-12 flex flex-col justify-center">
-                <div className="text-[10px] font-bold text-racing-500 uppercase tracking-widest mb-3">
-                  <i className="fas fa-magic mr-1" /> How It Works
+                {/* Dark overlay */}
+                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300" />
+
+                {/* Scanning effect on hover */}
+                {hoveredCar === i && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute inset-0 border-2 border-racing-500/50 rounded-2xl animate-pulse" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-racing-500/5 via-transparent to-racing-500/5 animate-scan-vertical" />
+                    {/* Corner brackets */}
+                    <div className="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-racing-500/70 rounded-tl" />
+                    <div className="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-racing-500/70 rounded-tr" />
+                    <div className="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-racing-500/70 rounded-bl" />
+                    <div className="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-racing-500/70 rounded-br" />
+                  </div>
+                )}
+
+                {/* Result badge */}
+                <div className={`absolute bottom-0 inset-x-0 transition-all duration-300 ${hoveredCar === i ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`}>
+                  <div className="bg-black/80 backdrop-blur-xl p-3 border-t border-white/10">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ backgroundColor: car.hex }} />
+                      <span className="font-heading font-bold text-sm text-white">{car.color}</span>
+                      <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold ml-auto">
+                        <i className="fas fa-check mr-1" />DETECTED
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-white/40 leading-relaxed">
+                      <i className="fas fa-lightbulb text-amber-400/60 mr-1" />{car.fact}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-2xl md:text-3xl font-heading font-black mb-4">
-                  From Chaos to <span className="text-racing-500">Color-Sorted</span> Folders
-                </h3>
-                <p className="text-white/40 text-sm leading-relaxed mb-6">
-                  Upload a mixed batch of car photos from any shoot — auctions, dealerships, car shows, drag meets.
-                  Our AI detects each vehicle, analyzes the dominant body color, and sorts every image into the right folder.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {['Red', 'Blue', 'Black', 'White', 'Silver', 'Yellow', 'Green', 'Orange'].map(c => (
-                    <span key={c} className="text-[10px] font-bold bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white/50">{c}</span>
-                  ))}
+
+                {/* Default label */}
+                <div className={`absolute top-3 left-3 transition-all duration-300 ${hoveredCar === i ? 'opacity-0 scale-75' : 'opacity-100 scale-100'}`}>
+                  <span className="text-[10px] bg-black/50 backdrop-blur-sm text-white/60 px-2 py-1 rounded-lg font-semibold">
+                    <i className="fas fa-crosshairs mr-1 text-racing-500/60" />Hover me
+                  </span>
                 </div>
               </div>
-            </div>
+            ))}
+          </div>
+
+          {/* Bottom prompt */}
+          <div className="text-center">
+            <p className="text-white/25 text-xs">
+              <i className="fas fa-info-circle mr-1" />
+              Our AI analyzes 10+ color regions per vehicle using CIE LAB color science for maximum accuracy
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ FUN FACTS ═══ */}
+      <section className="py-20 relative">
+        <div className="racing-stripe absolute inset-x-0 top-0 h-px" />
+        <div className="container mx-auto px-6 max-w-6xl">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-heading font-black mb-4">
+              The Science Behind <span className="text-racing-500">the Sort</span>
+            </h2>
+            <p className="text-white/40 max-w-lg mx-auto">AutoHue combines cutting-edge computer vision with automotive color science. Here&apos;s what makes it special.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 stagger">
+            {FUN_FACTS.map((fact, i) => (
+              <div key={i} className="glass-card rounded-2xl p-6 group hover:border-white/15 transition-all text-center">
+                <div className={`w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform ${fact.color}`}>
+                  <i className={`fas ${fact.icon} text-xl`} />
+                </div>
+                <div className="text-3xl font-heading font-black text-white mb-1">{fact.stat}</div>
+                <p className="text-xs text-white/40 leading-relaxed">{fact.label}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -367,7 +457,7 @@ export default function LandingPage() {
                 className="object-cover opacity-20"
                 unoptimized
               />
-              <div className="absolute inset-0 bg-[#0a0a0a]/90" />
+              <div className="absolute inset-0 bg-[#111113]/90" />
             </div>
             <div className="glass-card rounded-3xl p-12 text-center relative overflow-hidden">
               <div className="checkered-bg absolute inset-0 opacity-30" />
@@ -378,7 +468,7 @@ export default function LandingPage() {
                 <h2 className="text-3xl md:text-4xl font-heading font-black mb-4">
                   Ready to <span className="text-racing-500">Save Hours</span>?
                 </h2>
-                <p className="text-white/40 max-w-lg mx-auto mb-8">
+                <p className="text-white/50 max-w-lg mx-auto mb-8">
                   Join hundreds of automotive photographers who sort their car photos 10x faster with AutoHue.
                 </p>
                 <Link href="/sort" className="btn-racing text-lg px-10 py-4 rounded-2xl shadow-xl glow-red inline-flex items-center gap-3">
@@ -395,9 +485,9 @@ export default function LandingPage() {
       <footer className="border-t border-white/5 py-12">
         <div className="container mx-auto px-6 max-w-6xl">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <Image src="/logo.png" alt="AutoHue" width={32} height={32} className="w-8 h-8 object-contain" />
-              <span className="font-heading font-bold">
+            <div className="flex items-center gap-2.5">
+              <Image src="/logo.png" alt="AutoHue" width={40} height={40} className="w-10 h-10 object-contain" />
+              <span className="font-heading text-lg font-bold">
                 <span className="text-white">Auto</span>
                 <span className="text-racing-500">Hue</span>
               </span>

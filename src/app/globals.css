@@ -13,9 +13,9 @@
   --racing-red-bright: #ef4444;
   --racing-red-dark: #991b1b;
   --racing-glow: rgba(220, 38, 38, 0.4);
-  --carbon-bg: #0a0a0a;
-  --carbon-card: rgba(255, 255, 255, 0.03);
-  --carbon-border: rgba(255, 255, 255, 0.06);
+  --carbon-bg: #111113;
+  --carbon-card: rgba(255, 255, 255, 0.04);
+  --carbon-border: rgba(255, 255, 255, 0.08);
 }
 
 /* ── Base ── */
@@ -36,9 +36,9 @@ h1, h2, h3, h4, h5, h6 {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(ellipse at 15% 50%, rgba(220, 38, 38, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 85% 30%, rgba(220, 38, 38, 0.05) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 90%, rgba(239, 68, 68, 0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 15% 50%, rgba(220, 38, 38, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 30%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(168, 85, 247, 0.05) 0%, transparent 40%),
     var(--carbon-bg);
 }
 
@@ -53,22 +53,23 @@ h1, h2, h3, h4, h5, h6 {
   );
 }
 
-/* ── Glass cards (racing dark) ── */
+/* ── Glass cards (lighter, friendlier) ── */
 .glass-card {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.045);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 0.3s ease;
 }
 .glass-card:hover {
-  border-color: rgba(220, 38, 38, 0.15);
+  border-color: rgba(220, 38, 38, 0.2);
+  background: rgba(255, 255, 255, 0.06);
 }
 .glass-card-solid {
-  background: rgba(15, 15, 15, 0.95);
+  background: rgba(18, 18, 20, 0.95);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* ── Red accent line (top of cards) ── */
@@ -110,15 +111,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-carbon {
-  background: linear-gradient(135deg, #1a1a1a, #0e0e0e);
+  background: linear-gradient(135deg, #1e1e22, #141416);
   color: rgba(255, 255, 255, 0.8);
   font-weight: 600;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   transition: all 0.3s ease;
 }
 .btn-carbon:hover {
   border-color: rgba(220, 38, 38, 0.3);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(135deg, #252528, #1a1a1e);
 }
 
 /* ── Glow effects ── */
