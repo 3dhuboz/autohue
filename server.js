@@ -28,11 +28,11 @@ app.use('/thumbs', express.static(THUMB_DIR));
 app.use(express.json());
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CAR COLOR DETECTION ENGINE v7
-// SSD-MobileNet (car detection) + Environment filtering + Multi-region sampling
-// + Nyckel cloud classification + Smart merge with cross-validation
-// Pipeline: detect car → 3-region body sampling → HSV env filter →
-//           median-cut clustering → Nyckel classify → 5-case smart merge
+// CAR COLOR DETECTION ENGINE v8
+// Two-stage vehicle isolation: SSD-MobileNet (bbox) + SegFormer (pixel mask)
+// Pipeline: detect car → segment vehicle pixels → extract ONLY car paint →
+//           Nyckel on masked image + LAB on pure pixels → smart merge
+// Fallback: multi-region sampling + HSV env filtering if SegFormer unavailable
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── Nyckel API configuration ───
@@ -127,22 +127,47 @@ async function classifyWithNyckel(imageBuffer) {
     }
 }
 
-// ─── ONNX Model: load once at startup ───
-const MODEL_PATH = path.join(__dirname, 'models', 'ssd_mobilenet_v1_12.onnx');
-let onnxSession = null;
+// ─── ONNX Models: load once at startup ───
+const SSD_MODEL_PATH = path.join(__dirname, 'models', 'ssd_mobilenet_v1_12.onnx');
+const SEGFORMER_MODEL_PATH = path.join(__dirname, 'models', 'transformers-cache', 'Xenova',
+    'segformer-b0-finetuned-cityscapes-768-768', 'onnx', 'model_quantized.onnx');
+let onnxSession = null;      // SSD-MobileNet for bounding box detection
+let segformerSession = null;  // SegFormer for pixel-level vehicle segmentation
 
-// COCO class IDs for vehicles
+// COCO class IDs for vehicles (SSD-MobileNet)
 const VEHICLE_CLASSES = [3, 4, 6, 8]; // car, motorcycle, bus, truck
+// Cityscapes class IDs for vehicles (SegFormer)
+const SEGFORMER_VEHICLE_CLASSES = new Set([13, 14, 15, 17]); // car, truck, bus, motorcycle
+
+// SegFormer preprocessing constants (ImageNet normalization)
+const SEG_MEAN = [0.485, 0.456, 0.406];
+const SEG_STD = [0.229, 0.224, 0.225];
+const SEG_SIZE = 512;
 
 async function loadModel() {
+    // Load SSD-MobileNet (bounding box detection)
     try {
-        onnxSession = await ort.InferenceSession.create(MODEL_PATH, {
+        onnxSession = await ort.InferenceSession.create(SSD_MODEL_PATH, {
             executionProviders: ['cpu'],
         });
         console.log('ONNX SSD-MobileNet loaded successfully');
     } catch (err) {
-        console.error('Failed to load ONNX model:', err.message);
-        console.error('Falling back to center-crop color detection');
+        console.error('Failed to load SSD-MobileNet:', err.message);
+    }
+
+    // Load SegFormer (pixel-level vehicle segmentation)
+    try {
+        if (fs.existsSync(SEGFORMER_MODEL_PATH)) {
+            segformerSession = await ort.InferenceSession.create(SEGFORMER_MODEL_PATH, {
+                executionProviders: ['cpu'],
+            });
+            console.log('SegFormer segmentation model loaded successfully');
+        } else {
+            console.warn('SegFormer model not found at:', SEGFORMER_MODEL_PATH);
+        }
+    } catch (err) {
+        console.error('Failed to load SegFormer:', err.message);
+        console.error('Falling back to bounding-box + environment filtering');
     }
 }
 
@@ -192,6 +217,124 @@ async function detectCars(image) {
         console.error('ONNX inference error:', err.message);
         return null;
     }
+}
+
+// ─── Run SegFormer to get pixel-level vehicle mask ───
+// Input: a cropped image (Jimp) containing the car region
+// Output: { mask: boolean[], width, height, vehiclePixelCount, totalPixels }
+// mask[y * width + x] === true means that pixel belongs to a vehicle
+async function segmentVehicle(croppedImage) {
+    if (!segformerSession) return null;
+
+    try {
+        const resized = croppedImage.clone().resize(SEG_SIZE, SEG_SIZE);
+
+        // Prepare NCHW float32 tensor with ImageNet normalization
+        const inputData = new Float32Array(1 * 3 * SEG_SIZE * SEG_SIZE);
+        const channelSize = SEG_SIZE * SEG_SIZE;
+
+        resized.scan(0, 0, SEG_SIZE, SEG_SIZE, function(x, y, idx) {
+            const pixelIdx = y * SEG_SIZE + x;
+            const r = this.bitmap.data[idx] / 255.0;
+            const g = this.bitmap.data[idx + 1] / 255.0;
+            const b = this.bitmap.data[idx + 2] / 255.0;
+            // NCHW: channel 0 = R, channel 1 = G, channel 2 = B
+            inputData[0 * channelSize + pixelIdx] = (r - SEG_MEAN[0]) / SEG_STD[0];
+            inputData[1 * channelSize + pixelIdx] = (g - SEG_MEAN[1]) / SEG_STD[1];
+            inputData[2 * channelSize + pixelIdx] = (b - SEG_MEAN[2]) / SEG_STD[2];
+        });
+
+        const inputTensor = new ort.Tensor('float32', inputData, [1, 3, SEG_SIZE, SEG_SIZE]);
+
+        // Run inference — SegFormer outputs logits [1, 19, H, W]
+        const feeds = {};
+        const inputNames = segformerSession.inputNames;
+        feeds[inputNames[0]] = inputTensor;
+        const results = await segformerSession.run(feeds);
+
+        // Get the output tensor (logits)
+        const outputNames = segformerSession.outputNames;
+        const logits = results[outputNames[0]];
+        const logitsData = logits.data;
+        const [, numClasses, outH, outW] = logits.dims;
+
+        // Argmax across classes for each pixel to get class labels
+        const mask = new Array(outH * outW);
+        let vehiclePixelCount = 0;
+
+        for (let y = 0; y < outH; y++) {
+            for (let x = 0; x < outW; x++) {
+                let maxVal = -Infinity, maxClass = 0;
+                for (let c = 0; c < numClasses; c++) {
+                    const val = logitsData[c * outH * outW + y * outW + x];
+                    if (val > maxVal) { maxVal = val; maxClass = c; }
+                }
+                const isVehicle = SEGFORMER_VEHICLE_CLASSES.has(maxClass);
+                mask[y * outW + x] = isVehicle;
+                if (isVehicle) vehiclePixelCount++;
+            }
+        }
+
+        return { mask, width: outW, height: outH, vehiclePixelCount, totalPixels: outH * outW };
+    } catch (err) {
+        console.error('SegFormer inference error:', err.message);
+        return null;
+    }
+}
+
+// ─── Extract vehicle-only pixels using segmentation mask ───
+// Maps the segmentation mask back to the original crop and extracts only vehicle pixels
+function extractVehiclePixels(croppedImage, segResult) {
+    const cw = croppedImage.getWidth(), ch = croppedImage.getHeight();
+    const vehiclePixels = [];
+    const bgPixels = [];
+
+    // Scale factors from seg mask to crop image
+    const scaleX = segResult.width / cw;
+    const scaleY = segResult.height / ch;
+
+    croppedImage.scan(0, 0, cw, ch, function(x, y, idx) {
+        const r = this.bitmap.data[idx], g = this.bitmap.data[idx + 1], b = this.bitmap.data[idx + 2];
+        const brightness = (r + g + b) / 3;
+        if (brightness > 252 || brightness < 3) return; // skip blown out / dead pixels
+
+        // Map this pixel to the segmentation mask
+        const maskX = Math.min(Math.floor(x * scaleX), segResult.width - 1);
+        const maskY = Math.min(Math.floor(y * scaleY), segResult.height - 1);
+        const isVehicle = segResult.mask[maskY * segResult.width + maskX];
+
+        if (isVehicle) {
+            vehiclePixels.push([r, g, b]);
+        } else {
+            bgPixels.push([r, g, b]);
+        }
+    });
+
+    return { vehiclePixels, bgPixels };
+}
+
+// ─── Create a masked image for Nyckel (non-vehicle pixels → neutral gray) ───
+async function createMaskedCropForNyckel(croppedImage, segResult) {
+    const cw = croppedImage.getWidth(), ch = croppedImage.getHeight();
+    const masked = croppedImage.clone();
+    const scaleX = segResult.width / cw;
+    const scaleY = segResult.height / ch;
+
+    masked.scan(0, 0, cw, ch, function(x, y, idx) {
+        const maskX = Math.min(Math.floor(x * scaleX), segResult.width - 1);
+        const maskY = Math.min(Math.floor(y * scaleY), segResult.height - 1);
+        const isVehicle = segResult.mask[maskY * segResult.width + maskX];
+
+        if (!isVehicle) {
+            // Set background to neutral gray so Nyckel ignores it
+            this.bitmap.data[idx] = 128;
+            this.bitmap.data[idx + 1] = 128;
+            this.bitmap.data[idx + 2] = 128;
+        }
+    });
+
+    masked.resize(300, Jimp.AUTO).quality(80);
+    return await masked.getBufferAsync(Jimp.MIME_JPEG);
 }
 
 // ─── RGB → XYZ → LAB conversion (D65 illuminant) ───
@@ -554,177 +697,160 @@ function extractFilteredPixels(image, cx, cy, cw, ch, filterEnvironment) {
     return { carPixels, envPixels, envCounts };
 }
 
+// ─── Run LAB color classification on a set of pixels ───
+// Shared logic used by both segmented and fallback paths
+function classifyPixelsLAB(pixels) {
+    if (pixels.length < 30) return null;
+
+    const clusters = medianCut(pixels, 12);
+    const allClusters = clusters.map(c => {
+        const { category, distance } = classifyColorLab(c.rgb[0], c.rgb[1], c.rgb[2]);
+        const chroma = getChroma(c.rgb[0], c.rgb[1], c.rgb[2]);
+        const envTag = detectEnvironmentPixel(c.rgb[0], c.rgb[1], c.rgb[2]);
+        return { ...c, category, distance, chroma, isEnvRemnant: !!envTag };
+    });
+
+    const scored = allClusters.map(c => {
+        let score = c.pct * 100;
+        if (c.pct > 0.08) score *= 1.3;
+        if (c.pct > 0.18) score *= 1.4;
+        if (c.pct > 0.30) score *= 1.5;
+        if (c.distance < 8) score *= 3.0;
+        else if (c.distance < 15) score *= 2.5;
+        else if (c.distance < 22) score *= 1.8;
+        else if (c.distance < 30) score *= 1.0;
+        else score *= 0.3;
+        if (c.chroma > 35) score *= 1.3;
+        else if (c.chroma > 20) score *= 1.1;
+        if (c.isEnvRemnant) score *= 0.15;
+        if (c.distance < 12 && c.pct > 0.06) score *= 1.5;
+        return { ...c, score };
+    }).sort((a, b) => b.score - a.score);
+
+    const winner = scored[0];
+    const top5 = scored.slice(0, Math.min(5, scored.length));
+    const agreeing = top5.filter(c => c.category === winner.category).length;
+    const hex = `#${winner.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
+    const winnerCategoryPct = scored.filter(c => c.category === winner.category).reduce((sum, c) => sum + c.pct, 0);
+
+    return {
+        rgb: winner.rgb, category: winner.category, hex, distance: winner.distance,
+        chroma: winner.chroma, pct: winner.pct, agreeing, top5Count: top5.length,
+        winnerCategoryPct, allScored: scored
+    };
+}
+
 // ─── Analyze the hero car color in an image ───
-// Pipeline v7: SSD-MobileNet → multi-region sampling → environment filtering →
-//              median-cut clustering → Nyckel cross-check → smart merge
+// Pipeline v8: Two-stage vehicle isolation
+//   Stage 1: SSD-MobileNet → bounding box detection
+//   Stage 2: SegFormer → pixel-level vehicle segmentation (which pixels ARE the car)
+//   Stage 3: Extract ONLY vehicle pixels → zero background contamination
+//   Stage 4: Nyckel on masked crop + LAB on pure vehicle pixels → smart merge
 async function analyzeImageColor(imagePath) {
     try {
         const image = await Jimp.read(imagePath);
         const w = image.getWidth(), h = image.getHeight();
 
-        // ── Step 1: Detect car using SSD-MobileNet ──
+        // ── Stage 1: Detect car bounding box with SSD-MobileNet ──
         const carBox = await detectCars(image);
         const aiDetected = carBox && carBox.score > 0.3;
 
-        // ── Step 2: Multi-region sampling from car body ──
-        // Sample 3 horizontal strips from the car body panel area
-        // This dramatically reduces background contamination vs a single big crop
-        let allCarPixels = [];
-        let envFilterStats = { total: 0, filtered: 0 };
-        let cropForNyckel;
-
+        // ── Stage 2: Crop bounding box region ──
+        let carCrop;
         if (aiDetected) {
-            const boxH = carBox.bottom - carBox.top;
-            const boxW = carBox.right - carBox.left;
-
-            // Primary region: middle body panels (the most reliable area)
-            // Skip top 10% (roof/windshield glare), bottom 35% (wheels/road/shadows)
-            // Shrink sides 18% to cut background edges aggressively
-            const regions = [
-                { // Upper body (hood/roof line) — 10-30% of box height
-                    top: carBox.top + boxH * 0.10,
-                    bottom: carBox.top + boxH * 0.30,
-                    left: carBox.left + boxW * 0.20,
-                    right: carBox.right - boxW * 0.20,
-                    weight: 1.0
-                },
-                { // Mid body (doors/fenders) — 25-55% of box height — MOST IMPORTANT
-                    top: carBox.top + boxH * 0.25,
-                    bottom: carBox.top + boxH * 0.55,
-                    left: carBox.left + boxW * 0.15,
-                    right: carBox.right - boxW * 0.15,
-                    weight: 2.0
-                },
-                { // Lower body (rocker panels) — 50-65% of box height
-                    top: carBox.top + boxH * 0.50,
-                    bottom: carBox.top + boxH * 0.65,
-                    left: carBox.left + boxW * 0.20,
-                    right: carBox.right - boxW * 0.20,
-                    weight: 0.8
-                }
-            ];
-
-            for (const region of regions) {
-                const cx = Math.max(0, Math.round(region.left * w));
-                const cy = Math.max(0, Math.round(region.top * h));
-                const cw = Math.max(10, Math.round((region.right - region.left) * w));
-                const ch = Math.max(10, Math.round((region.bottom - region.top) * h));
-
-                const { carPixels, envPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
-                envFilterStats.total += carPixels.length + envPixels.length;
-                envFilterStats.filtered += envPixels.length;
-
-                // Weight mid-body pixels more heavily by duplicating them
-                const dupeCount = Math.round(region.weight);
-                for (let d = 0; d < dupeCount; d++) {
-                    allCarPixels.push(...carPixels);
-                }
-            }
-
-            // Create a tighter crop for Nyckel (mid-body only, no env pixels in the image)
-            const midCx = Math.max(0, Math.round((carBox.left + boxW * 0.18) * w));
-            const midCy = Math.max(0, Math.round((carBox.top + boxH * 0.15) * h));
-            const midCw = Math.max(10, Math.round(boxW * 0.64 * w));
-            const midCh = Math.max(10, Math.round(boxH * 0.45 * h));
-            cropForNyckel = image.clone().crop(
-                midCx, midCy,
-                Math.min(midCw, w - midCx),
-                Math.min(midCh, h - midCy)
-            );
-
-            const envPct = envFilterStats.total > 0 ? Math.round(envFilterStats.filtered / envFilterStats.total * 100) : 0;
-            console.log(`  [crop] AI detected (score=${carBox.score.toFixed(2)}) → 3-region sampling, ${allCarPixels.length} car pixels, ${envPct}% env filtered`);
-
+            const cx = Math.max(0, Math.round(carBox.left * w));
+            const cy = Math.max(0, Math.round(carBox.top * h));
+            const cw = Math.max(10, Math.min(Math.round((carBox.right - carBox.left) * w), w - cx));
+            const ch = Math.max(10, Math.min(Math.round((carBox.bottom - carBox.top) * h), h - cy));
+            carCrop = image.clone().crop(cx, cy, cw, ch);
+            console.log(`  [stage1] SSD-MobileNet detected vehicle (score=${carBox.score.toFixed(2)}) → ${cw}x${ch} crop`);
         } else {
-            // Fallback: tight center crop with environment filtering
-            const cx = Math.round(w * 0.22), cy = Math.round(h * 0.30);
-            const cw = Math.round(w * 0.56), ch = Math.round(h * 0.40);
-
-            const { carPixels, envPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
-            allCarPixels = carPixels;
-            envFilterStats.total = carPixels.length + envPixels.length;
-            envFilterStats.filtered = envPixels.length;
-
-            cropForNyckel = image.clone().crop(cx, cy, Math.min(cw, w - cx), Math.min(ch, h - cy));
-
-            const envPct = envFilterStats.total > 0 ? Math.round(envFilterStats.filtered / envFilterStats.total * 100) : 0;
-            console.log(`  [crop] No AI detection → center crop, ${allCarPixels.length} car pixels, ${envPct}% env filtered`);
+            // No detection → center crop (loose, segmentation will tighten it)
+            const cx = Math.round(w * 0.10), cy = Math.round(h * 0.10);
+            const cw = Math.round(w * 0.80), ch = Math.round(h * 0.80);
+            carCrop = image.clone().crop(cx, cy, Math.min(cw, w - cx), Math.min(ch, h - cy));
+            console.log(`  [stage1] No detection → center 80% crop`);
         }
 
-        // ── Step 3: Prepare Nyckel crop + run both classifiers in parallel ──
-        cropForNyckel.resize(300, Jimp.AUTO).quality(80);
-        const cropBuffer = await cropForNyckel.getBufferAsync(Jimp.MIME_JPEG);
-        const nyckelPromise = classifyWithNyckel(cropBuffer);
+        // ── Stage 3: SegFormer pixel-level vehicle segmentation ──
+        const segResult = await segmentVehicle(carCrop);
+        let vehiclePixels = [];
+        let segmentationUsed = false;
+        let nyckelCropBuffer;
 
-        // ── Step 4: Local LAB classification on filtered car pixels ──
-        let labResult = null;
-        if (allCarPixels.length >= 30) {
-            const clusters = medianCut(allCarPixels, 12);
-            const allClusters = clusters.map(c => {
-                const { category, distance } = classifyColorLab(c.rgb[0], c.rgb[1], c.rgb[2]);
-                const chroma = getChroma(c.rgb[0], c.rgb[1], c.rgb[2]);
-                const hsv = rgbToHsv(c.rgb[0], c.rgb[1], c.rgb[2]);
-                // Check if this cluster looks like a car paint color vs environment remnant
-                const envTag = detectEnvironmentPixel(c.rgb[0], c.rgb[1], c.rgb[2]);
-                return { ...c, category, distance, chroma, hsv, isEnvRemnant: !!envTag };
-            });
+        if (segResult && segResult.vehiclePixelCount > 0) {
+            const vehiclePct = Math.round(segResult.vehiclePixelCount / segResult.totalPixels * 100);
+            console.log(`  [stage2] SegFormer: ${vehiclePct}% of crop is vehicle (${segResult.vehiclePixelCount}/${segResult.totalPixels} pixels)`);
 
-            // Score clusters with improved heuristics
-            const scored = allClusters.map(c => {
-                let score = c.pct * 100;
+            // Only use segmentation if it found a meaningful vehicle region (>5% of crop)
+            if (vehiclePct > 5) {
+                segmentationUsed = true;
 
-                // Size bonuses (larger clusters = more likely to be the car body)
-                if (c.pct > 0.08) score *= 1.3;
-                if (c.pct > 0.18) score *= 1.4;
-                if (c.pct > 0.30) score *= 1.5;
+                // Extract only vehicle-classified pixels
+                const { vehiclePixels: vp } = extractVehiclePixels(
+                    carCrop.clone().resize(Math.min(250, carCrop.getWidth()), Jimp.AUTO),
+                    segResult
+                );
+                vehiclePixels = vp;
 
-                // Palette match quality (closer to reference = more likely correct)
-                if (c.distance < 8) score *= 3.0;
-                else if (c.distance < 15) score *= 2.5;
-                else if (c.distance < 22) score *= 1.8;
-                else if (c.distance < 30) score *= 1.0;
-                else score *= 0.3;
+                // Create a masked crop for Nyckel (background → neutral gray)
+                nyckelCropBuffer = await createMaskedCropForNyckel(carCrop, segResult);
 
-                // Chroma bonus — vivid colors are more likely car paint
-                if (c.chroma > 35) score *= 1.3;
-                else if (c.chroma > 20) score *= 1.1;
+                console.log(`  [stage2] Extracted ${vehiclePixels.length} pure vehicle pixels (zero background)`);
+            } else {
+                console.log(`  [stage2] SegFormer found too little vehicle area (${vehiclePct}%), falling back`);
+            }
+        } else {
+            console.log(`  [stage2] SegFormer unavailable or found no vehicles, falling back`);
+        }
 
-                // Environment remnant penalty — even after filtering, some slip through
-                if (c.isEnvRemnant) score *= 0.15;
+        // ── Fallback: multi-region sampling + env filtering (if segmentation failed) ──
+        if (!segmentationUsed) {
+            if (aiDetected) {
+                const boxH = carBox.bottom - carBox.top;
+                const boxW = carBox.right - carBox.left;
+                const regions = [
+                    { top: carBox.top + boxH * 0.10, bottom: carBox.top + boxH * 0.30,
+                      left: carBox.left + boxW * 0.20, right: carBox.right - boxW * 0.20, weight: 1.0 },
+                    { top: carBox.top + boxH * 0.25, bottom: carBox.top + boxH * 0.55,
+                      left: carBox.left + boxW * 0.15, right: carBox.right - boxW * 0.15, weight: 2.0 },
+                    { top: carBox.top + boxH * 0.50, bottom: carBox.top + boxH * 0.65,
+                      left: carBox.left + boxW * 0.20, right: carBox.right - boxW * 0.20, weight: 0.8 }
+                ];
+                for (const region of regions) {
+                    const cx = Math.max(0, Math.round(region.left * w));
+                    const cy = Math.max(0, Math.round(region.top * h));
+                    const cw = Math.max(10, Math.round((region.right - region.left) * w));
+                    const ch = Math.max(10, Math.round((region.bottom - region.top) * h));
+                    const { carPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
+                    const dupeCount = Math.round(region.weight);
+                    for (let d = 0; d < dupeCount; d++) vehiclePixels.push(...carPixels);
+                }
+            } else {
+                const cx = Math.round(w * 0.22), cy = Math.round(h * 0.30);
+                const cw = Math.round(w * 0.56), ch = Math.round(h * 0.40);
+                const { carPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
+                vehiclePixels = carPixels;
+            }
+            // Standard crop for Nyckel
+            const nCrop = carCrop.clone().resize(300, Jimp.AUTO).quality(80);
+            nyckelCropBuffer = await nCrop.getBufferAsync(Jimp.MIME_JPEG);
+            console.log(`  [fallback] Env-filtered ${vehiclePixels.length} pixels`);
+        }
 
-                // Consistency bonus: if the cluster average is very close to a palette entry
-                // AND has reasonable size, it's very likely correct
-                if (c.distance < 12 && c.pct > 0.06) score *= 1.5;
+        // ── Stage 4: Classify — Nyckel (cloud) + LAB (local) in parallel ──
+        const nyckelPromise = classifyWithNyckel(nyckelCropBuffer);
+        const labResult = classifyPixelsLAB(vehiclePixels);
 
-                return { ...c, score };
-            }).sort((a, b) => b.score - a.score);
-
-            const winner = scored[0];
-            const top5 = scored.slice(0, Math.min(5, scored.length));
-            const agreeing = top5.filter(c => c.category === winner.category).length;
-            const hex = `#${winner.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
-
-            // Calculate total coverage for the winning category
-            const winnerCategoryPct = scored
-                .filter(c => c.category === winner.category)
-                .reduce((sum, c) => sum + c.pct, 0);
-
-            labResult = {
-                rgb: winner.rgb, category: winner.category, hex, distance: winner.distance,
-                chroma: winner.chroma, pct: winner.pct, agreeing, top5Count: top5.length,
-                winnerCategoryPct,
-                allScored: scored
-            };
-
-            console.log(`  [lab] Winner: ${winner.category} (deltaE=${winner.distance.toFixed(1)}, ${Math.round(winnerCategoryPct*100)}% coverage, ${agreeing}/${top5.length} agree, chroma=${winner.chroma.toFixed(0)})`);
+        if (labResult) {
+            console.log(`  [lab] Winner: ${labResult.category} (deltaE=${labResult.distance.toFixed(1)}, ${Math.round(labResult.winnerCategoryPct*100)}% coverage, ${labResult.agreeing}/${labResult.top5Count} agree, chroma=${labResult.chroma.toFixed(0)})${segmentationUsed ? ' [segmented]' : ''}`);
         }
 
         const nyckelResult = await nyckelPromise;
 
-        // ── Step 5: Smart merge v2 — Nyckel + LAB cross-validation ──
+        // ── Stage 5: Smart merge — Nyckel + LAB cross-validation ──
         const ACHROMATIC = new Set(['black', 'white', 'silver-grey']);
         const CHROMATIC = new Set(['red','blue','green','yellow','orange','purple','pink','brown']);
-        // Colors that commonly appear in backgrounds
         const ENV_COLORS = new Set(['green', 'blue', 'brown']);
 
         if (nyckelResult && nyckelResult.confidence > 0.3) {
@@ -733,192 +859,167 @@ async function analyzeImageColor(imagePath) {
 
             if (labResult && labResult.allScored) {
                 const labWinner = labResult.category;
-
-                // Calculate pixel coverage breakdown
-                const achromaticPct = labResult.allScored
-                    .filter(c => ACHROMATIC.has(c.category))
-                    .reduce((sum, c) => sum + c.pct, 0);
-                const nyckelColorPct = labResult.allScored
-                    .filter(c => c.category === nyckelCategory)
-                    .reduce((sum, c) => sum + c.pct, 0);
+                const achromaticPct = labResult.allScored.filter(c => ACHROMATIC.has(c.category)).reduce((sum, c) => sum + c.pct, 0);
+                const nyckelColorPct = labResult.allScored.filter(c => c.category === nyckelCategory).reduce((sum, c) => sum + c.pct, 0);
                 const labWinnerPct = labResult.winnerCategoryPct;
-                const totalChromaticPct = labResult.allScored
-                    .filter(c => CHROMATIC.has(c.category))
-                    .reduce((sum, c) => sum + c.pct, 0);
 
-                console.log(`  [merge] Nyckel=${nyckelCategory}(${Math.round(nyckelConf*100)}%) LAB=${labWinner}(${Math.round(labWinnerPct*100)}%) achro=${Math.round(achromaticPct*100)}% nyckelColor=${Math.round(nyckelColorPct*100)}% chromo=${Math.round(totalChromaticPct*100)}%`);
+                console.log(`  [merge] Nyckel=${nyckelCategory}(${Math.round(nyckelConf*100)}%) LAB=${labWinner}(${Math.round(labWinnerPct*100)}%) achro=${Math.round(achromaticPct*100)}% nyckelColor=${Math.round(nyckelColorPct*100)}%${segmentationUsed ? ' [SEG]' : ''}`);
 
-                // ── CASE A: Both agree → high confidence result ──
+                // CASE A: Both agree → highest confidence
                 if (nyckelCategory === labWinner) {
                     console.log(`  [merge] AGREE: both say ${nyckelCategory}`);
                     return {
                         rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
-                        confidence: 'high',
-                        nyckelLabel: nyckelResult.nyckelLabel,
+                        confidence: 'high', nyckelLabel: nyckelResult.nyckelLabel,
                         nyckelConfidence: Math.round(nyckelConf * 100),
-                        aiDetected, method: 'consensus'
+                        aiDetected, segmented: segmentationUsed, method: 'consensus'
                     };
                 }
 
-                // ── CASE B: Nyckel says CHROMATIC, LAB says ACHROMATIC ──
-                // This is the "white car on green grass" scenario
+                // If segmentation was used, LAB data is PURE vehicle pixels — trust it more
+                const labTrustBoost = segmentationUsed ? 0.15 : 0;
+
+                // CASE B: Nyckel=CHROMATIC, LAB=ACHROMATIC
                 if (CHROMATIC.has(nyckelCategory) && ACHROMATIC.has(labWinner)) {
-                    // Trust LAB if: achromatic dominates AND Nyckel's color has minimal LAB support
-                    if (achromaticPct > 0.45 && nyckelColorPct < 0.25) {
-                        console.log(`  [merge] OVERRIDE→LAB: Nyckel=${nyckelCategory} but ${Math.round(achromaticPct*100)}% achromatic, only ${Math.round(nyckelColorPct*100)}% ${nyckelCategory}`);
+                    if (achromaticPct > (0.45 - labTrustBoost) && nyckelColorPct < (0.25 + labTrustBoost)) {
+                        console.log(`  [merge] OVERRIDE→LAB: ${labWinner} (${Math.round(achromaticPct*100)}% achromatic)`);
                         return {
                             rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
                             confidence: labResult.distance < 18 ? 'high' : 'medium',
                             nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
                             deltaE: Math.round(labResult.distance * 10) / 10,
-                            aiDetected, method: 'lab-override'
+                            aiDetected, segmented: segmentationUsed, method: 'lab-override'
                         };
                     }
-                    // Trust LAB if strong agreement among top clusters
                     if (labResult.agreeing >= 3 && labResult.distance < 18) {
-                        console.log(`  [merge] OVERRIDE→LAB (strong): ${labResult.agreeing} clusters agree on ${labWinner}, deltaE=${labResult.distance.toFixed(1)}`);
+                        console.log(`  [merge] OVERRIDE→LAB (strong): ${labResult.agreeing} agree on ${labWinner}`);
                         return {
                             rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
-                            confidence: 'high',
-                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            confidence: 'high', nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
                             deltaE: Math.round(labResult.distance * 10) / 10,
-                            aiDetected, method: 'lab-override'
+                            aiDetected, segmented: segmentationUsed, method: 'lab-override'
                         };
                     }
                 }
 
-                // ── CASE C: Nyckel says environment-like color (green/blue/brown) ──
-                // Extra skepticism for colors that commonly come from backgrounds
+                // CASE C: Nyckel says environment color but LAB disagrees
                 if (ENV_COLORS.has(nyckelCategory) && nyckelCategory !== labWinner) {
-                    // If Nyckel's color has <30% pixel support in LAB, don't trust it
-                    if (nyckelColorPct < 0.30 && labWinnerPct > nyckelColorPct) {
-                        console.log(`  [merge] ENV_SKEPTIC: Nyckel=${nyckelCategory}(${Math.round(nyckelColorPct*100)}%) but LAB=${labWinner}(${Math.round(labWinnerPct*100)}%)`);
-                        // Use LAB winner
+                    const threshold = segmentationUsed ? 0.40 : 0.30;
+                    if (nyckelColorPct < threshold && labWinnerPct > nyckelColorPct) {
+                        console.log(`  [merge] ENV_SKEPTIC: Nyckel=${nyckelCategory}(${Math.round(nyckelColorPct*100)}%) → LAB=${labWinner}(${Math.round(labWinnerPct*100)}%)`);
                         return {
                             rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
                             confidence: labResult.distance < 20 ? 'high' : 'medium',
                             nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
                             deltaE: Math.round(labResult.distance * 10) / 10,
-                            aiDetected, method: 'lab-env-override'
+                            aiDetected, segmented: segmentationUsed, method: 'lab-env-override'
                         };
                     }
                 }
 
-                // ── CASE D: Nyckel says ACHROMATIC, LAB says CHROMATIC ──
-                // Nyckel may be seeing shadows/reflections as black/grey/white
-                // but the car is actually a dark chromatic color
+                // CASE D: Nyckel=ACHROMATIC, LAB=CHROMATIC
                 if (ACHROMATIC.has(nyckelCategory) && CHROMATIC.has(labWinner)) {
-                    // Search all clusters for chromatic signal
                     const chromaticClusters = labResult.allScored.filter(c =>
                         CHROMATIC.has(c.category) && c.chroma > 8 && c.distance < 35 && c.pct > 0.03
                     );
-
                     if (chromaticClusters.length > 0) {
                         const bestChromatic = chromaticClusters.sort((a, b) => {
-                            const scoreA = a.chroma * 2 + a.pct * 100 + (35 - a.distance);
-                            const scoreB = b.chroma * 2 + b.pct * 100 + (35 - b.distance);
-                            return scoreB - scoreA;
+                            const sA = a.chroma * 2 + a.pct * 100 + (35 - a.distance);
+                            const sB = b.chroma * 2 + b.pct * 100 + (35 - b.distance);
+                            return sB - sA;
                         })[0];
-
-                        const chromaticPct = chromaticClusters
-                            .filter(c => c.category === bestChromatic.category)
-                            .reduce((sum, c) => sum + c.pct, 0);
-
-                        // Override if meaningful chromatic presence
+                        const chromaticPct = chromaticClusters.filter(c => c.category === bestChromatic.category).reduce((sum, c) => sum + c.pct, 0);
                         if (chromaticPct > 0.05 || bestChromatic.chroma > 20) {
                             const hex = `#${bestChromatic.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
-                            console.log(`  [merge] OVERRIDE→CHROMATIC: Nyckel=${nyckelCategory} but LAB found ${bestChromatic.category} (${Math.round(chromaticPct*100)}% coverage, chroma=${bestChromatic.chroma.toFixed(0)})`);
+                            console.log(`  [merge] OVERRIDE→CHROMATIC: ${bestChromatic.category} (${Math.round(chromaticPct*100)}%)`);
                             return {
                                 rgb: bestChromatic.rgb, category: bestChromatic.category, hex,
                                 confidence: bestChromatic.distance < 20 ? 'high' : 'medium',
                                 deltaE: Math.round(bestChromatic.distance * 10) / 10,
                                 nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
                                 chromaticPct: Math.round(chromaticPct * 100),
-                                aiDetected, method: 'lab-chromatic-override'
+                                aiDetected, segmented: segmentationUsed, method: 'lab-chromatic-override'
                             };
                         }
                     }
-
-                    // Both agree it's achromatic
-                    console.log(`  [merge] ACHROMATIC: both agree → ${nyckelCategory}`);
+                    console.log(`  [merge] ACHROMATIC confirmed → ${nyckelCategory}`);
                     return {
                         rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
                         confidence: nyckelConf > 0.7 ? 'high' : 'medium',
-                        nyckelLabel: nyckelResult.nyckelLabel,
-                        nyckelConfidence: Math.round(nyckelConf * 100),
-                        aiDetected, method: 'nyckel'
+                        nyckelLabel: nyckelResult.nyckelLabel, nyckelConfidence: Math.round(nyckelConf * 100),
+                        aiDetected, segmented: segmentationUsed, method: 'nyckel'
                     };
                 }
 
-                // ── CASE E: Both chromatic but disagree ──
+                // CASE E: Both chromatic but disagree
                 if (CHROMATIC.has(nyckelCategory) && CHROMATIC.has(labWinner) && nyckelCategory !== labWinner) {
-                    // High-confidence Nyckel + the color exists in LAB → trust Nyckel
-                    if (nyckelConf > 0.65 && nyckelColorPct > 0.10) {
-                        console.log(`  [merge] NYCKEL_WINS: ${nyckelCategory}(${Math.round(nyckelConf*100)}%, ${Math.round(nyckelColorPct*100)}% LAB support)`);
-                        return {
-                            rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
-                            confidence: 'high',
-                            nyckelLabel: nyckelResult.nyckelLabel,
-                            nyckelConfidence: Math.round(nyckelConf * 100),
-                            aiDetected, method: 'nyckel'
-                        };
-                    }
-                    // LAB winner has strong coverage → trust LAB
-                    if (labWinnerPct > 0.40 && labResult.distance < 20) {
-                        console.log(`  [merge] LAB_WINS: ${labWinner}(${Math.round(labWinnerPct*100)}%, deltaE=${labResult.distance.toFixed(1)})`);
+                    // With segmentation, LAB is more trustworthy
+                    if (segmentationUsed && labWinnerPct > 0.30 && labResult.distance < 22) {
+                        console.log(`  [merge] LAB_WINS (segmented): ${labWinner}(${Math.round(labWinnerPct*100)}%)`);
                         return {
                             rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
-                            confidence: 'high',
-                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            confidence: 'high', nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
                             deltaE: Math.round(labResult.distance * 10) / 10,
-                            aiDetected, method: 'lab-override'
+                            aiDetected, segmented: segmentationUsed, method: 'lab-seg-override'
                         };
                     }
-                    // Close call: prefer Nyckel if it has reasonable confidence
+                    if (nyckelConf > 0.65 && nyckelColorPct > 0.10) {
+                        console.log(`  [merge] NYCKEL_WINS: ${nyckelCategory}(${Math.round(nyckelConf*100)}%)`);
+                        return {
+                            rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
+                            confidence: 'high', nyckelLabel: nyckelResult.nyckelLabel,
+                            nyckelConfidence: Math.round(nyckelConf * 100),
+                            aiDetected, segmented: segmentationUsed, method: 'nyckel'
+                        };
+                    }
+                    if (labWinnerPct > 0.40 && labResult.distance < 20) {
+                        console.log(`  [merge] LAB_WINS: ${labWinner}(${Math.round(labWinnerPct*100)}%)`);
+                        return {
+                            rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
+                            confidence: 'high', nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            deltaE: Math.round(labResult.distance * 10) / 10,
+                            aiDetected, segmented: segmentationUsed, method: 'lab-override'
+                        };
+                    }
                     if (nyckelConf > 0.45) {
                         console.log(`  [merge] TIEBREAK→NYCKEL: ${nyckelCategory}(${Math.round(nyckelConf*100)}%)`);
                         return {
                             rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
-                            confidence: 'medium',
-                            nyckelLabel: nyckelResult.nyckelLabel,
+                            confidence: 'medium', nyckelLabel: nyckelResult.nyckelLabel,
                             nyckelConfidence: Math.round(nyckelConf * 100),
-                            aiDetected, method: 'nyckel-tiebreak'
+                            aiDetected, segmented: segmentationUsed, method: 'nyckel-tiebreak'
                         };
                     }
                 }
             }
 
-            // Nyckel available but no LAB data — trust Nyckel
+            // Nyckel available but no LAB → trust Nyckel
             if (!labResult) {
                 return {
                     rgb: [0,0,0], category: nyckelCategory, hex: '#000000',
                     confidence: nyckelConf > 0.7 ? 'high' : nyckelConf > 0.4 ? 'medium' : 'low',
-                    nyckelLabel: nyckelResult.nyckelLabel,
-                    nyckelConfidence: Math.round(nyckelConf * 100),
-                    aiDetected, method: 'nyckel-only'
+                    nyckelLabel: nyckelResult.nyckelLabel, nyckelConfidence: Math.round(nyckelConf * 100),
+                    aiDetected, segmented: segmentationUsed, method: 'nyckel-only'
                 };
             }
         }
 
-        // ── Step 6: Nyckel failed — use local LAB only ──
+        // ── Stage 6: Nyckel failed — LAB only ──
         if (!labResult) {
             return { rgb: [128,128,128], category: 'unknown', hex: '#808080', confidence: 'none', method: 'none' };
         }
 
         let confidence = 'medium';
         if (labResult.distance < 15 && (labResult.agreeing >= 2 || labResult.pct > 0.12)) confidence = 'high';
+        if (segmentationUsed && labResult.distance < 22) confidence = 'high';
         if (aiDetected && labResult.distance < 20) confidence = 'high';
         if (labResult.distance > 30 && labResult.agreeing < 2) confidence = 'low';
 
         return {
-            rgb: labResult.rgb,
-            category: labResult.category,
-            hex: labResult.hex,
-            confidence,
-            regionsAgreeing: labResult.agreeing,
-            totalRegions: labResult.top5Count,
+            rgb: labResult.rgb, category: labResult.category, hex: labResult.hex,
+            confidence, regionsAgreeing: labResult.agreeing, totalRegions: labResult.top5Count,
             deltaE: Math.round(labResult.distance * 10) / 10,
-            aiDetected, method: 'local-lab'
+            aiDetected, segmented: segmentationUsed, method: 'local-lab'
         };
 
     } catch (err) {
@@ -1345,9 +1446,16 @@ app.delete('/cleanup/:sessionId', (req, res) => {
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
-        onnx: onnxSession ? 'loaded' : 'NOT loaded (fallback mode)',
-        modelPath: MODEL_PATH,
-        modelExists: fs.existsSync(MODEL_PATH),
+        engine: 'v8',
+        ssdMobilenet: onnxSession ? 'loaded' : 'NOT loaded',
+        segformer: segformerSession ? 'loaded' : 'NOT loaded (fallback to env filtering)',
+        ssdModelPath: SSD_MODEL_PATH,
+        ssdModelExists: fs.existsSync(SSD_MODEL_PATH),
+        segModelPath: SEGFORMER_MODEL_PATH,
+        segModelExists: fs.existsSync(SEGFORMER_MODEL_PATH),
+        pipeline: segformerSession
+            ? 'SSD bbox → SegFormer pixel mask → pure vehicle pixels → Nyckel+LAB → merge'
+            : 'SSD bbox → multi-region crop → env filter → Nyckel+LAB → merge',
         storageRoot: STORAGE_ROOT,
         storagePersistent: !!process.env.STORAGE_ROOT,
         uptime: Math.round(process.uptime()) + 's',
