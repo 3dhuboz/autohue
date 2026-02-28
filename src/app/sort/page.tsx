@@ -61,6 +61,8 @@ export default function SortPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cursorRef = useRef(0);
   const completionRecorded = useRef(false);
+  const speedHistory = useRef<number[]>([]);
+  const confHistory = useRef<number[]>([]);
 
   useEffect(() => {
     if (authStatus === 'unauthenticated') router.push('/login');
@@ -124,6 +126,8 @@ export default function SortPage() {
       setSessionId(data.session_id);
       cursorRef.current = 0;
       completionRecorded.current = false;
+      speedHistory.current = [];
+      confHistory.current = [];
       setStats({
         processed: 0, total: 0, currentFile: 'Starting...', startTime: Date.now(),
         imagesPerSecond: 0, avgConfidence: 0, timeSavedSeconds: 0,
@@ -153,8 +157,22 @@ export default function SortPage() {
             }))];
             const elapsed = (Date.now() - prev.startTime) / 1000;
             const processed = data.processed || newResults.length;
-            const ips = elapsed > 0 ? processed / elapsed : 0;
-            const avgConf = newResults.reduce((sum: number, r: { confidence: number }) => sum + r.confidence, 0) / newResults.length;
+            const instantIps = elapsed > 0 ? processed / elapsed : 0;
+
+            // Rolling average for speed (last 5 readings) — prevents needle jitter
+            speedHistory.current.push(instantIps);
+            if (speedHistory.current.length > 5) speedHistory.current.shift();
+            const smoothIps = speedHistory.current.reduce((a, b) => a + b, 0) / speedHistory.current.length;
+
+            // Rolling average for confidence
+            const batchConf = data.new_results.reduce((sum: number, r: { confidence: string | number }) => {
+              const c = typeof r.confidence === 'number' ? r.confidence : (confMap[r.confidence] ?? 0.5);
+              return sum + c;
+            }, 0) / data.new_results.length;
+            confHistory.current.push(batchConf);
+            if (confHistory.current.length > 5) confHistory.current.shift();
+            const smoothConf = confHistory.current.reduce((a, b) => a + b, 0) / confHistory.current.length;
+
             const manualTime = processed * MANUAL_SECONDS_PER_IMAGE;
             const aiTime = elapsed;
             const counts: Record<string, number> = {};
@@ -165,8 +183,8 @@ export default function SortPage() {
               processed,
               total: data.total || prev.total,
               currentFile: data.current_file || prev.currentFile,
-              imagesPerSecond: ips,
-              avgConfidence: avgConf,
+              imagesPerSecond: smoothIps,
+              avgConfidence: smoothConf,
               timeSavedSeconds: Math.max(0, manualTime - aiTime),
               results: newResults,
               colorCounts: counts,
@@ -224,6 +242,14 @@ export default function SortPage() {
   const confPct = stats.avgConfidence * 100;
   const timeSavedFormatted = formatTimeSaved(stats.timeSavedSeconds);
 
+  // ETA calculation
+  const remaining = stats.total - stats.processed;
+  const etaSeconds = stats.imagesPerSecond > 0 ? remaining / stats.imagesPerSecond : 0;
+  const etaFormatted = etaSeconds > 60
+    ? `${Math.floor(etaSeconds / 60)}m ${Math.round(etaSeconds % 60)}s`
+    : etaSeconds > 0 ? `${Math.round(etaSeconds)}s` : '--';
+  const etaPct = stats.total > 0 ? Math.min((1 - remaining / stats.total) * 100, 100) : 0;
+
   return (
     <div className="min-h-screen pb-20">
       <NavBar />
@@ -258,7 +284,7 @@ export default function SortPage() {
 
             {/* Drop zone */}
             <div
-              className={`drop-zone glass-card rounded-3xl p-12 text-center cursor-pointer ${dragOver ? 'dragover' : ''}`}
+              className={`drop-zone glass-card rounded-3xl p-12 text-center cursor-pointer relative overflow-hidden ${dragOver ? 'dragover' : ''}`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
@@ -273,11 +299,33 @@ export default function SortPage() {
                 title="Select car photos or archives"
                 onChange={e => e.target.files && handleFiles(e.target.files)}
               />
-              <div className="w-20 h-20 rounded-2xl bg-racing-600/10 border border-racing-600/20 flex items-center justify-center mx-auto mb-6">
-                <i className="fas fa-cloud-upload-alt text-racing-500 text-3xl" />
+
+              {/* Animated floating color orbs */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div className="absolute w-3 h-3 rounded-full bg-red-500/20 animate-float-1" />
+                <div className="absolute w-4 h-4 rounded-full bg-blue-500/20 animate-float-2" />
+                <div className="absolute w-3 h-3 rounded-full bg-green-500/20 animate-float-3" />
+                <div className="absolute w-5 h-5 rounded-full bg-yellow-500/15 animate-float-4" />
+                <div className="absolute w-3 h-3 rounded-full bg-purple-500/20 animate-float-5" />
+                <div className="absolute w-4 h-4 rounded-full bg-orange-500/15 animate-float-6" />
               </div>
-              <p className="text-white/60 font-semibold mb-2">Drop car photos here or click to browse</p>
-              <p className="text-white/25 text-xs">JPG, PNG, WEBP, ZIP, RAR &mdash; up to 5,000+ images per batch</p>
+
+              {/* Animated car icon + upload arrow */}
+              <div className="relative mx-auto mb-6 w-24 h-24">
+                <div className="absolute inset-0 rounded-2xl bg-racing-600/10 border border-racing-600/20 animate-pulse" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <i className="fas fa-car text-racing-500/40 text-4xl animate-car-drive" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-racing-600/20 border border-racing-600/30 flex items-center justify-center animate-bounce-slow">
+                  <i className="fas fa-arrow-up text-racing-400 text-xs" />
+                </div>
+              </div>
+
+              <p className="text-white/60 font-semibold mb-2 relative z-10">Drop car photos here or click to browse</p>
+              <p className="text-white/25 text-xs relative z-10">JPG, PNG, WEBP, ZIP, RAR &mdash; up to 5,000+ images per batch</p>
+
+              {/* Animated scan line */}
+              <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-racing-500/40 to-transparent animate-scan-line" />
             </div>
 
             {/* File list */}
@@ -307,8 +355,8 @@ export default function SortPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex justify-center">
-                  <button onClick={startProcessing} disabled={uploading} className="btn-racing px-10 py-4 rounded-2xl text-lg shadow-xl glow-red disabled:opacity-60 disabled:cursor-wait">
+                <div className="flex flex-col items-center gap-4">
+                  <button onClick={startProcessing} disabled={uploading} className="btn-racing px-10 py-4 rounded-2xl text-lg shadow-xl glow-red disabled:opacity-60 disabled:cursor-wait animate-upload-pulse">
                     {uploading ? (
                       <>
                         <i className="fas fa-spinner fa-spin mr-2" />
@@ -321,6 +369,16 @@ export default function SortPage() {
                       </>
                     )}
                   </button>
+                  {uploading && (
+                    <div className="flex items-center gap-3 text-xs text-white/30 animate-fade-up">
+                      <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-racing-500 animate-bounce" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-racing-500 animate-bounce" style={{ animationDelay: '0.15s' }} />
+                        <div className="w-1.5 h-1.5 rounded-full bg-racing-500 animate-bounce" style={{ animationDelay: '0.3s' }} />
+                      </div>
+                      Uploading {files.length} files to the sorting engine...
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -340,8 +398,8 @@ export default function SortPage() {
             </div>
 
             {/* ─── GAUGES ROW ─── */}
-            <div className="glass-card rounded-3xl p-8 red-accent-top">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+            <div className="glass-card rounded-3xl p-6 red-accent-top">
+              <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 items-start">
                 {/* Speed gauge */}
                 <TachoGauge
                   value={speedPct}
@@ -349,21 +407,10 @@ export default function SortPage() {
                   label="SPEED"
                   unit="img/sec"
                   displayValue={stats.imagesPerSecond.toFixed(1)}
-                  size={180}
+                  size={150}
                   variant="red"
                   redZoneStart={80}
-                />
-
-                {/* Accuracy gauge */}
-                <TachoGauge
-                  value={confPct}
-                  max={100}
-                  label="ACCURACY"
-                  unit="confidence"
-                  displayValue={confPct > 0 ? `${confPct.toFixed(0)}%` : '--'}
-                  size={180}
-                  variant="green"
-                  redZoneStart={95}
+                  subtitle={stats.imagesPerSecond > 0 ? `~${(1/stats.imagesPerSecond).toFixed(1)}s each` : ''}
                 />
 
                 {/* Progress gauge */}
@@ -373,26 +420,61 @@ export default function SortPage() {
                   label="PROGRESS"
                   unit={`${stats.processed}/${stats.total}`}
                   displayValue={`${progressPct}%`}
-                  size={180}
+                  size={150}
                   variant="amber"
                   redZoneStart={90}
                 />
 
-                {/* Time saved display */}
-                <div className="flex flex-col items-center justify-center h-full gap-3 py-4">
-                  <div className="w-16 h-16 rounded-2xl bg-racing-600/10 border border-racing-600/20 flex items-center justify-center">
-                    <i className="fas fa-stopwatch text-racing-500 text-2xl" />
-                  </div>
-                  <div className="text-center">
-                    <div className="digital-readout text-3xl font-black text-white">{timeSavedFormatted}</div>
-                    <div className="text-[10px] text-white/30 mt-1">TIME SAVED vs manual</div>
-                  </div>
-                  <div className="text-[10px] text-white/20 text-center leading-relaxed">
-                    Manual: ~{MANUAL_SECONDS_PER_IMAGE}s per photo
-                    <br />
-                    AutoHue: {stats.imagesPerSecond > 0 ? `~${(1/stats.imagesPerSecond).toFixed(1)}s` : '--'} per photo
-                  </div>
-                </div>
+                {/* Accuracy gauge */}
+                <TachoGauge
+                  value={confPct}
+                  max={100}
+                  label="ACCURACY"
+                  unit="confidence"
+                  displayValue={confPct > 0 ? `${confPct.toFixed(0)}%` : '--'}
+                  size={150}
+                  variant="green"
+                  redZoneStart={95}
+                />
+
+                {/* ETA gauge */}
+                <TachoGauge
+                  value={etaPct}
+                  max={100}
+                  label="ETA"
+                  unit="remaining"
+                  displayValue={etaFormatted}
+                  size={150}
+                  variant="blue"
+                  redZoneStart={95}
+                  subtitle={remaining > 0 ? `${remaining} left` : ''}
+                />
+
+                {/* Time saved gauge — shows as percentage of manual time */}
+                <TachoGauge
+                  value={stats.timeSavedSeconds > 0 ? Math.min((stats.timeSavedSeconds / (stats.processed * MANUAL_SECONDS_PER_IMAGE)) * 100, 100) : 0}
+                  max={100}
+                  label="TIME SAVED"
+                  unit="vs manual"
+                  displayValue={timeSavedFormatted}
+                  size={150}
+                  variant="green"
+                  redZoneStart={95}
+                  subtitle={`Manual: ~${Math.round(stats.processed * MANUAL_SECONDS_PER_IMAGE / 60)}m`}
+                />
+
+                {/* Batch size gauge */}
+                <TachoGauge
+                  value={stats.total > 0 ? Math.min((stats.total / 500) * 100, 100) : 0}
+                  max={500}
+                  label="BATCH"
+                  unit="total images"
+                  displayValue={stats.total > 0 ? `${stats.total}` : '--'}
+                  size={150}
+                  variant="red"
+                  redZoneStart={80}
+                  subtitle={Object.keys(stats.colorCounts).length > 0 ? `${Object.keys(stats.colorCounts).length} colors found` : ''}
+                />
               </div>
             </div>
 

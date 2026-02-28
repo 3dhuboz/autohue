@@ -9,8 +9,9 @@ interface TachoGaugeProps {
   unit: string;         // e.g. "img/s"
   displayValue: string; // formatted value to show in center
   size?: number;        // px, default 200
-  variant?: 'red' | 'green' | 'amber';
+  variant?: 'red' | 'green' | 'amber' | 'blue';
   redZoneStart?: number; // percentage where red zone begins (default 80)
+  subtitle?: string;    // optional small text below unit
 }
 
 export default function TachoGauge({
@@ -21,30 +22,39 @@ export default function TachoGauge({
   size = 200,
   variant = 'red',
   redZoneStart = 80,
+  subtitle,
 }: TachoGaugeProps) {
   const [animatedValue, setAnimatedValue] = useState(0);
   const prevValue = useRef(0);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     const start = prevValue.current;
-    const end = Math.min(value, 100);
-    const duration = 800;
+    const end = Math.min(Math.max(value, 0), 100);
+    const duration = 1200; // slower for smoother feel
     const startTime = performance.now();
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
     const animate = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      // Smooth ease-in-out for more realistic needle movement
+      const eased = progress < 0.5
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
       const current = start + (end - start) * eased;
       setAnimatedValue(current);
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        rafRef.current = requestAnimationFrame(animate);
       }
     };
 
-    requestAnimationFrame(animate);
+    rafRef.current = requestAnimationFrame(animate);
     prevValue.current = end;
+
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [value]);
 
   const cx = size / 2;
@@ -95,10 +105,11 @@ export default function TachoGauge({
   const gradientId = `gauge-gradient-${variant}-${size}`;
   const glowId = `gauge-glow-${variant}-${size}`;
 
-  const gradientColors = {
+  const gradientColors: Record<string, { start: string; end: string }> = {
     red: { start: '#f97316', end: '#dc2626' },
     green: { start: '#22c55e', end: '#10b981' },
     amber: { start: '#f59e0b', end: '#ef4444' },
+    blue: { start: '#3b82f6', end: '#6366f1' },
   };
 
   return (
@@ -172,6 +183,7 @@ export default function TachoGauge({
         </text>
       </svg>
       <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-white/40">{label}</span>
+      {subtitle && <span className="text-[9px] text-white/20 -mt-1">{subtitle}</span>}
     </div>
   );
 }
