@@ -467,6 +467,12 @@ export default function SortPage() {
               <h2 className="text-3xl font-heading font-black mb-2">Sorting Complete!</h2>
               <p className="text-white/40 text-sm">{stats.processed} images sorted into {Object.keys(stats.colorCounts).length} color folders</p>
 
+              {/* Retention notice */}
+              <div className="mt-4 inline-flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2 text-xs text-amber-400">
+                <i className="fas fa-clock" />
+                Your sorted files are stored based on your plan. Download before they expire, or upgrade for longer retention.
+              </div>
+
               {/* Final stats */}
               <div className="flex items-center justify-center gap-8 mt-8 pt-6 border-t border-white/5">
                 <div className="text-center">

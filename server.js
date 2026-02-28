@@ -1054,6 +1054,28 @@ app.post('/reassign', (req, res) => {
     res.json({ success: true, filename: destName, from: fromFolder, to: toFolder });
 });
 
+// ─── Cleanup endpoint (delete session files) ───
+app.delete('/cleanup/:sessionId', (req, res) => {
+    const sessionId = req.params.sessionId;
+    const uploadDir = path.join(UPLOAD_DIR, sessionId);
+    const outputDir = path.join(OUTPUT_DIR, sessionId);
+    const thumbDir = path.join(THUMB_DIR, sessionId);
+
+    let cleaned = 0;
+    [uploadDir, outputDir, thumbDir].forEach(dir => {
+        if (fs.existsSync(dir)) {
+            fs.rmSync(dir, { recursive: true, force: true });
+            cleaned++;
+        }
+    });
+
+    // Remove from in-memory sessions
+    delete sessions[sessionId];
+
+    console.log(`[${sessionId}] Cleanup: removed ${cleaned} directories`);
+    res.json({ success: true, cleaned });
+});
+
 // ─── Health check ───
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', model: onnxSession ? 'loaded' : 'fallback' });

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
 import { deductCredits } from '@/lib/credits';
 import prisma from '@/lib/prisma';
+import { getExpiresAt, getRetentionLabel } from '@/lib/retention';
+import { Plan } from '@prisma/client';
 
 export async function POST(req: Request) {
   const session = await requireAuth();
@@ -18,7 +20,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Credit deduction failed' }, { status: 403 });
   }
 
-  // Record session
+  // Get user plan for retention policy
+  const sub = await prisma.subscription.findUnique({ where: { userId } });
+  const plan = (sub?.plan || 'FREE') as Plan;
+  const expiresAt = getExpiresAt(plan);
+
+  // Record session with retention expiry
   const sortSession = await prisma.sortSession.create({
     data: {
       userId,
@@ -28,8 +35,14 @@ export async function POST(req: Request) {
       colorCounts: colorCounts || {},
       creditsUsed: totalImages,
       completedAt: new Date(),
+      expiresAt,
     },
   });
 
-  return NextResponse.json({ sessionId: sortSession.id, creditsUsed: totalImages });
+  return NextResponse.json({
+    sessionId: sortSession.id,
+    creditsUsed: totalImages,
+    expiresAt: expiresAt.toISOString(),
+    retentionLabel: getRetentionLabel(plan),
+  });
 }

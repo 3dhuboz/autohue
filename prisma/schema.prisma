@@ -124,13 +124,18 @@ model SortSession {
   userId        String
   workerSession String                      // The worker's session ID (e.g. "a1b2c3d4")
   totalImages   Int      @default(0)
-  status        String   @default("processing") // processing, completed, error
+  status        String   @default("processing") // processing, completed, error, deleted
   colorCounts   Json?                        // { "red": 5, "blue": 3, ... }
   creditsUsed   Int      @default(0)
+  expiresAt     DateTime?                    // When files will be auto-deleted (tier-based)
+  deletedAt     DateTime?                    // When user manually deleted files
   createdAt     DateTime @default(now())
   completedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([expiresAt])
 }
 
 model TrialAccount {

@@ -15,9 +15,9 @@ export async function GET() {
     getCredits(userId),
     prisma.subscription.findUnique({ where: { userId } }),
     prisma.sortSession.findMany({
-      where: { userId },
+      where: { userId, status: { not: 'deleted' } },
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      take: 20,
     }),
   ]);
 
@@ -37,12 +37,15 @@ export async function GET() {
       totalImages,
       totalSessions,
     },
-    recentSessions: sortSessions.map(s => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recentSessions: sortSessions.map((s: any) => ({
       id: s.id,
+      workerSession: s.workerSession,
       totalImages: s.totalImages,
       status: s.status,
       colorCounts: s.colorCounts,
       creditsUsed: s.creditsUsed,
+      expiresAt: s.expiresAt ?? null,
       createdAt: s.createdAt,
       completedAt: s.completedAt,
     })),
