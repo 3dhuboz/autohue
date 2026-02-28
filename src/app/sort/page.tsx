@@ -49,6 +49,7 @@ export default function SortPage() {
   const [sessionId, setSessionId] = useState('');
   const [creditError, setCreditError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [expandedColor, setExpandedColor] = useState<string | null>(null);
   const [stats, setStats] = useState<ProcessingStats>({
     processed: 0, total: 0, currentFile: '', startTime: 0,
     imagesPerSecond: 0, avgConfidence: 0, timeSavedSeconds: 0,
@@ -197,6 +198,25 @@ export default function SortPage() {
         console.error('Polling error:', e);
       }
     }, 1500);
+  };
+
+  const reassignImage = async (filename: string, fromFolder: string, toFolder: string) => {
+    try {
+      const res = await fetch(`${WORKER_BASE}/reassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, filename, fromFolder, toFolder }),
+      });
+      if (!res.ok) return;
+      setStats(prev => {
+        const updatedResults = prev.results.map(r =>
+          r.file === filename && r.color === fromFolder ? { ...r, color: toFolder } : r
+        );
+        const counts: Record<string, number> = {};
+        updatedResults.forEach(r => { counts[r.color] = (counts[r.color] || 0) + 1; });
+        return { ...prev, results: updatedResults, colorCounts: counts };
+      });
+    } catch (e) { console.error('Reassign failed:', e); }
   };
 
   const progressPct = stats.total > 0 ? Math.round((stats.processed / stats.total) * 100) : 0;
@@ -376,19 +396,14 @@ export default function SortPage() {
               </div>
             </div>
 
-            {/* ─── LIVE STATS BAR ─── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon="fa-image" label="Processed" value={`${stats.processed}`} sub={`of ${stats.total}`} />
-              <StatCard icon="fa-tachometer-alt" label="Speed" value={`${stats.imagesPerSecond.toFixed(1)}`} sub="img/sec" />
-              <StatCard icon="fa-bullseye" label="Avg Confidence" value={confPct > 0 ? `${confPct.toFixed(0)}%` : '--'} sub="accuracy" />
-              <StatCard icon="fa-file-alt" label="Current" value="" sub={stats.currentFile || 'Waiting...'} />
-            </div>
-
-            {/* ─── PROGRESS BAR ─── */}
-            <div className="glass-card rounded-2xl p-5">
-              <div className="flex items-center justify-between text-xs text-white/30 mb-3">
-                <span>Progress</span>
-                <span className="digital-readout">{progressPct}%</span>
+            {/* ─── PROGRESS BAR + CURRENT FILE ─── */}
+            <div className="glass-card rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-white/50 flex items-center gap-2">
+                  <i className="fas fa-spinner fa-spin text-racing-500 text-xs" />
+                  {stats.currentFile ? `Processing: ${stats.currentFile}` : 'Starting...'}
+                </span>
+                <span className="digital-readout text-white/60">{stats.processed} / {stats.total}</span>
               </div>
               <div className="w-full bg-white/5 rounded-full h-3 overflow-hidden relative">
                 <div
@@ -401,6 +416,7 @@ export default function SortPage() {
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
                 </div>
               </div>
+              <div className="text-center text-xs text-white/20">{progressPct}% complete</div>
             </div>
 
             {/* ─── COLOR DISTRIBUTION BAR ─── */}
@@ -472,22 +488,58 @@ export default function SortPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 stagger">
               {Object.entries(stats.colorCounts).sort((a, b) => b[1] - a[1]).map(([color, count]) => {
                 const info = COLOR_INFO[color] || COLOR_INFO['unknown'];
+                const isExpanded = expandedColor === color;
                 return (
                   <button
                     key={color}
-                    className="color-card glass-card rounded-2xl p-5 text-left"
+                    onClick={() => setExpandedColor(isExpanded ? null : color)}
+                    className={`color-card glass-card rounded-2xl p-5 text-left transition-all ${isExpanded ? 'ring-2 ring-white/30' : 'hover:scale-[1.03]'}`}
                     style={{ borderColor: `${info.swatch}20` }}
                   >
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-8 h-8 rounded-xl" style={{ background: info.swatch, boxShadow: `0 0 12px ${info.glow}` }} />
                       <span className="font-heading font-bold text-sm">{info.label}</span>
+                      <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-white/20 text-xs ml-auto`} />
                     </div>
                     <div className="digital-readout text-2xl font-black" style={{ color: info.swatch }}>{count}</div>
-                    <div className="text-[10px] text-white/25 mt-1">images</div>
+                    <div className="text-[10px] text-white/25 mt-1">images — click to review</div>
                   </button>
                 );
               })}
             </div>
+
+            {/* Expanded color panel — shows images for the selected color */}
+            {expandedColor && (
+              <div className="glass-card rounded-2xl p-6 animate-fade-up">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-heading font-bold text-lg flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-lg" style={{ background: (COLOR_INFO[expandedColor] || COLOR_INFO['unknown']).swatch }} />
+                    {(COLOR_INFO[expandedColor] || COLOR_INFO['unknown']).label} — {stats.results.filter(r => r.color === expandedColor).length} images
+                  </h3>
+                  <button onClick={() => setExpandedColor(null)} title="Close panel" className="text-white/30 hover:text-white transition-colors">
+                    <i className="fas fa-times" />
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                  {stats.results.filter(r => r.color === expandedColor).map((result, idx) => (
+                    <div key={`${result.file}-${idx}`} className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3">
+                      <i className="fas fa-image text-white/20 text-sm" />
+                      <span className="text-sm text-white/70 truncate flex-1">{result.file}</span>
+                      <select
+                        value={result.color}
+                        onChange={(e) => reassignImage(result.file, result.color, e.target.value)}
+                        aria-label={`Color for ${result.file}`}
+                        className="bg-white/10 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/80 cursor-pointer focus:outline-none focus:border-racing-500"
+                      >
+                        {Object.entries(COLOR_INFO).map(([key, ci]) => (
+                          <option key={key} value={key} className="bg-gray-900 text-white">{ci.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Watermark editor for Pro/Enterprise */}
             {(authSession?.user?.plan === 'PRO' || authSession?.user?.plan === 'ENTERPRISE') && (
