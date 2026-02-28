@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const Jimp = require('jimp');
 const archiver = require('archiver');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const unzipper = require('unzipper');
 const { createExtractorFromFile } = require('node-unrar-js');
 const ort = require('onnxruntime-node');
@@ -862,7 +862,7 @@ async function processSession(sessionId) {
 
 // ─── Upload endpoint ───
 app.post('/upload', (req, res) => {
-    const sessionId = uuidv4().slice(0, 8);
+    const sessionId = crypto.randomUUID().slice(0, 8);
 
     const sessionStorage = multer.diskStorage({
         destination: (req, file, cb) => {
