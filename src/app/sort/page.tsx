@@ -37,7 +37,7 @@ interface ProcessingStats {
   imagesPerSecond: number;
   avgConfidence: number;
   timeSavedSeconds: number;
-  results: Array<{ file: string; color: string; confidence: number }>;
+  results: Array<{ file: string; color: string; confidence: number; thumb?: string | null }>;
   colorCounts: Record<string, number>;
 }
 
@@ -152,8 +152,8 @@ export default function SortPage() {
           cursorRef.current += data.new_results.length;
           setStats(prev => {
             const confMap: Record<string, number> = { high: 0.95, medium: 0.75, low: 0.5, none: 0.3 };
-            const newResults = [...prev.results, ...data.new_results.map((r: { file: string; color: string; confidence: string | number }) => ({
-              file: r.file, color: r.color, confidence: typeof r.confidence === 'number' ? r.confidence : (confMap[r.confidence] ?? 0.5),
+            const newResults = [...prev.results, ...data.new_results.map((r: { file: string; color: string; confidence: string | number; thumb?: string | null }) => ({
+              file: r.file, color: r.color, confidence: typeof r.confidence === 'number' ? r.confidence : (confMap[r.confidence] ?? 0.5), thumb: r.thumb || null,
             }))];
             const elapsed = (Date.now() - prev.startTime) / 1000;
             const processed = data.processed || newResults.length;
@@ -500,6 +500,144 @@ export default function SortPage() {
               </div>
               <div className="text-center text-xs text-white/20">{progressPct}% complete</div>
             </div>
+
+            {/* ─── LIVE IMAGE FEED ─── */}
+            {stats.results.length > 0 && (
+              <div className="glass-card rounded-2xl p-5 overflow-hidden">
+                <h3 className="text-xs font-bold text-white/30 mb-3 flex items-center gap-2">
+                  <i className="fas fa-stream text-racing-500 animate-pulse" />
+                  Live Sort Feed
+                  <span className="text-[10px] bg-racing-600/20 text-racing-400 px-2 py-0.5 rounded-full font-bold">LIVE</span>
+                </h3>
+                {/* Scrolling thumbnail strip */}
+                <div className="flex gap-3 overflow-x-auto pb-2 live-feed-scroll">
+                  {stats.results.slice(-12).reverse().map((r, i) => {
+                    const info = COLOR_INFO[r.color] || COLOR_INFO['unknown'];
+                    return (
+                      <div
+                        key={`${r.file}-${i}`}
+                        className="shrink-0 w-[100px] animate-slide-in-right"
+                        style={{ animationDelay: `${i * 0.05}s` }}
+                      >
+                        <div className="relative rounded-lg overflow-hidden bg-black/40 aspect-[4/3] border border-white/5">
+                          {r.thumb ? (
+                            <img
+                              src={`${WORKER_BASE}${r.thumb}`}
+                              alt={r.file}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <i className="fas fa-car text-white/10 text-xl" />
+                            </div>
+                          )}
+                          {/* Color badge overlay */}
+                          <div className="absolute bottom-0 inset-x-0 flex items-center gap-1 px-1.5 py-1 bg-black/70 backdrop-blur-sm">
+                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info.swatch, boxShadow: `0 0 6px ${info.glow}` }} />
+                            <span className="text-[8px] text-white/60 truncate">{info.label}</span>
+                          </div>
+                          {/* Scan line effect on newest */}
+                          {i === 0 && <div className="absolute inset-0 bg-gradient-to-b from-racing-500/10 via-transparent to-transparent animate-scan-vertical" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ─── SORTING PIPELINE ANIMATION ─── */}
+            <div className="glass-card rounded-2xl p-5 relative overflow-hidden">
+              <h3 className="text-xs font-bold text-white/30 mb-4 flex items-center gap-2">
+                <i className="fas fa-project-diagram text-racing-500" />
+                AI Classification Pipeline
+              </h3>
+              <div className="flex items-center justify-between gap-2 relative">
+                {/* Step 1: Upload */}
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${stats.processed > 0 ? 'bg-green-500/15 border border-green-500/30' : 'bg-white/5 border border-white/10'}`}>
+                    <i className={`fas fa-cloud-upload-alt ${stats.processed > 0 ? 'text-green-400' : 'text-white/20'}`} />
+                  </div>
+                  <span className="text-[9px] text-white/30">Upload</span>
+                  {stats.processed > 0 && <i className="fas fa-check-circle text-green-500 text-[10px]" />}
+                </div>
+                <i className="fas fa-chevron-right text-white/10 text-[10px]" />
+
+                {/* Step 2: Detection */}
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${stats.processed > 0 ? 'bg-blue-500/15 border border-blue-500/30 animate-pulse' : 'bg-white/5 border border-white/10'}`}>
+                    <i className={`fas fa-crosshairs ${stats.processed > 0 ? 'text-blue-400' : 'text-white/20'}`} />
+                  </div>
+                  <span className="text-[9px] text-white/30">Detect</span>
+                  <span className="text-[8px] text-blue-400/60">ONNX</span>
+                </div>
+                <i className="fas fa-chevron-right text-white/10 text-[10px]" />
+
+                {/* Step 3: Color Analysis */}
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${stats.processed > 0 ? 'bg-purple-500/15 border border-purple-500/30 animate-pulse' : 'bg-white/5 border border-white/10'}`}>
+                    <i className={`fas fa-palette ${stats.processed > 0 ? 'text-purple-400' : 'text-white/20'}`} />
+                  </div>
+                  <span className="text-[9px] text-white/30">Analyze</span>
+                  <span className="text-[8px] text-purple-400/60">CIE LAB</span>
+                </div>
+                <i className="fas fa-chevron-right text-white/10 text-[10px]" />
+
+                {/* Step 4: AI Classify */}
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${stats.processed > 0 ? 'bg-amber-500/15 border border-amber-500/30 animate-pulse' : 'bg-white/5 border border-white/10'}`}>
+                    <i className={`fas fa-brain ${stats.processed > 0 ? 'text-amber-400' : 'text-white/20'}`} />
+                  </div>
+                  <span className="text-[9px] text-white/30">Classify</span>
+                  <span className="text-[8px] text-amber-400/60">Nyckel AI</span>
+                </div>
+                <i className="fas fa-chevron-right text-white/10 text-[10px]" />
+
+                {/* Step 5: Sort */}
+                <div className="flex flex-col items-center gap-1.5 flex-1">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${stats.processed > 0 ? 'bg-racing-600/15 border border-racing-600/30' : 'bg-white/5 border border-white/10'}`}>
+                    <i className={`fas fa-folder-open ${stats.processed > 0 ? 'text-racing-400' : 'text-white/20'}`} />
+                  </div>
+                  <span className="text-[9px] text-white/30">Sort</span>
+                  <span className="text-[8px] text-racing-400/60">{Object.keys(stats.colorCounts).length} folders</span>
+                </div>
+
+                {/* Animated data flow line */}
+                <div className="absolute top-6 left-[10%] right-[10%] h-[2px] -z-0">
+                  <div className="h-full bg-white/[0.03] rounded-full" />
+                  {stats.processed > 0 && <div className="absolute inset-0 h-full bg-gradient-to-r from-green-500/30 via-blue-500/30 via-purple-500/30 via-amber-500/30 to-racing-500/30 rounded-full animate-data-flow" />}
+                </div>
+              </div>
+            </div>
+
+            {/* ─── LIVE ACTIVITY LOG ─── */}
+            {stats.results.length > 0 && (
+              <div className="glass-card rounded-2xl p-5">
+                <h3 className="text-xs font-bold text-white/30 mb-3 flex items-center gap-2">
+                  <i className="fas fa-terminal text-racing-500" />
+                  Activity Log
+                </h3>
+                <div className="bg-black/30 rounded-xl p-3 max-h-36 overflow-y-auto font-mono text-[10px] space-y-1 activity-log-scroll">
+                  {stats.results.slice(-20).reverse().map((r, i) => {
+                    const info = COLOR_INFO[r.color] || COLOR_INFO['unknown'];
+                    const confLabel = r.confidence >= 0.9 ? 'HIGH' : r.confidence >= 0.7 ? 'MED' : 'LOW';
+                    const confColor = r.confidence >= 0.9 ? 'text-green-400' : r.confidence >= 0.7 ? 'text-yellow-400' : 'text-red-400';
+                    return (
+                      <div key={`log-${r.file}-${i}`} className={`flex items-center gap-2 ${i === 0 ? 'text-white/60' : 'text-white/25'}`}>
+                        <span className="text-racing-500/50 w-6 text-right shrink-0">{stats.results.length - i}</span>
+                        <span className="text-white/10">│</span>
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info.swatch }} />
+                        <span className="truncate flex-1">{r.file}</span>
+                        <span className="text-white/10">→</span>
+                        <span style={{ color: info.swatch }}>{info.label}</span>
+                        <span className={`${confColor} w-7 text-right`}>{confLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ─── COLOR DISTRIBUTION BAR ─── */}
             {Object.keys(stats.colorCounts).length > 0 && (
