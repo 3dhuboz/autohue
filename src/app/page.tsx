@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import PricingButton from '@/components/PricingButton';
 import { useState } from 'react';
+import AiDisclaimer from '@/components/AiDisclaimer';
 
 const FEATURES = [
   { icon: 'fa-bolt', title: 'Lightning Fast', desc: 'Process thousands of photos in minutes, not hours. AI sorts 5-10 images per second.' },
@@ -492,14 +493,17 @@ export default function LandingPage() {
                 <span className="text-racing-500">Hue</span>
               </span>
             </div>
-            <div className="flex items-center gap-6 text-xs text-white/30">
-              <Link href="/privacy" className="hover:text-white/60 transition-colors">Privacy</Link>
-              <Link href="/terms" className="hover:text-white/60 transition-colors">Terms</Link>
-              <Link href="/support" className="hover:text-white/60 transition-colors">Support</Link>
-              <a href="https://www.facebook.com/pennywiseitoz" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">
-                <i className="fab fa-facebook mr-1" />Penny Wise I.T
-              </a>
-              <span>&copy; {new Date().getFullYear()} AutoHue. All rights reserved.</span>
+            <div className="flex flex-col items-center md:items-end gap-3">
+              <div className="flex items-center gap-6 text-xs text-white/30">
+                <Link href="/privacy" className="hover:text-white/60 transition-colors">Privacy</Link>
+                <Link href="/terms" className="hover:text-white/60 transition-colors">Terms</Link>
+                <Link href="/support" className="hover:text-white/60 transition-colors">Support</Link>
+                <a href="https://www.facebook.com/pennywiseitoz" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">
+                  <i className="fab fa-facebook mr-1" />Penny Wise I.T
+                </a>
+                <span>&copy; {new Date().getFullYear()} AutoHue. All rights reserved.</span>
+              </div>
+              <AiDisclaimer variant="compact" />
             </div>
           </div>
         </div>

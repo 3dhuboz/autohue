@@ -62,17 +62,23 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-heading font-bold text-white mb-2">7. Limitation of Liability</h2>
-            <p>AutoHue and Penny Wise I.T shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service. Our total liability is limited to the amount you paid for the Service in the preceding 12 months.</p>
+            <h2 className="text-lg font-heading font-bold text-white mb-2">7. AI Accuracy & Classification</h2>
+            <p>AutoHue uses artificial intelligence and computer vision technologies to classify vehicle colors. While we strive for the highest accuracy (95%+), AI-powered classifications are inherently probabilistic and may occasionally be incorrect due to factors including but not limited to: lighting conditions, camera settings, reflections, multi-tone or custom paint, vehicle wraps, and image quality.</p>
+            <p className="mt-2">All classification results are logged and continuously reviewed to improve accuracy. Users are provided with a one-click reassign feature to correct any misclassifications. By using the Service, you acknowledge that AI results are provided as a best-effort classification and should be reviewed before use in any critical application. AutoHue does not guarantee 100% accuracy of any individual classification.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-heading font-bold text-white mb-2">8. Changes to Terms</h2>
+            <h2 className="text-lg font-heading font-bold text-white mb-2">8. Limitation of Liability</h2>
+            <p>AutoHue and Penny Wise I.T shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service, including but not limited to losses arising from AI misclassifications. Our total liability is limited to the amount you paid for the Service in the preceding 12 months.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-heading font-bold text-white mb-2">9. Changes to Terms</h2>
             <p>We may update these terms at any time. Continued use of the Service after changes constitutes acceptance. We will notify users of material changes via email or in-app notice.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-heading font-bold text-white mb-2">9. Contact</h2>
+            <h2 className="text-lg font-heading font-bold text-white mb-2">10. Contact</h2>
             <p>For questions about these terms, contact us via our <Link href="/support" className="text-racing-400 hover:underline">support page</Link> or through <a href="https://www.facebook.com/pennywiseitoz" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Penny Wise I.T on Facebook</a>.</p>
           </section>
         </div>

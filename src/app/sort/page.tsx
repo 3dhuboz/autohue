@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import NavBar from '@/components/NavBar';
 import TachoGauge from '@/components/gauges/TachoGauge';
 import WatermarkEditor from '@/components/WatermarkEditor';
+import AiDisclaimer from '@/components/AiDisclaimer';
 
 const WORKER_BASE = '/api/worker';
 const MANUAL_SECONDS_PER_IMAGE = 20; // avg time to manually sort one car photo
@@ -281,6 +282,8 @@ export default function SortPage() {
                 <Link href="/account" className="ml-auto text-racing-500 hover:text-racing-400 text-xs font-bold">Upgrade</Link>
               </div>
             )}
+
+            <AiDisclaimer variant="banner" />
 
             {/* Drop zone */}
             <div
@@ -785,6 +788,8 @@ export default function SortPage() {
             {(authSession?.user?.plan === 'PRO' || authSession?.user?.plan === 'ENTERPRISE') && (
               <WatermarkEditor />
             )}
+
+            <AiDisclaimer variant="inline" />
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">

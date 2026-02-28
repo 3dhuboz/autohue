@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/NavBar';
+import AiDisclaimer from '@/components/AiDisclaimer';
 
 interface SortSessionItem {
   id: string;
@@ -222,6 +223,8 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        <AiDisclaimer variant="compact" className="mt-6 text-center" />
       </div>
     </div>
   );
