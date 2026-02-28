@@ -543,9 +543,7 @@ export default function SortPage() {
 
             {/* Watermark editor for Pro/Enterprise */}
             {(authSession?.user?.plan === 'PRO' || authSession?.user?.plan === 'ENTERPRISE') && (
-              <div className="max-w-md mx-auto mb-6">
-                <WatermarkEditor />
-              </div>
+              <WatermarkEditor />
             )}
 
             {/* Actions */}
