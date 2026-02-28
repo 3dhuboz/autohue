@@ -81,7 +81,7 @@ const HERO_IMAGES = [
 ];
 
 const GALLERY_IMAGES = [
-  { src: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=500&h=350&fit=crop', alt: 'Drift car smoke', caption: 'Drifting' },
+  { src: 'https://images.unsplash.com/photo-1553440569-bcc63803a83d?w=500&h=350&fit=crop', alt: 'Red sports car on road', caption: 'Drifting' },
   { src: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=500&h=350&fit=crop', alt: 'Front view sports car', caption: 'Street Racing' },
   { src: 'https://images.unsplash.com/photo-1614162692292-7ac56d7f7f1e?w=500&h=350&fit=crop', alt: 'Race track', caption: 'Track Day' },
   { src: 'https://images.unsplash.com/photo-1619405399517-d7fce0f13302?w=500&h=350&fit=crop', alt: 'Muscle car', caption: 'Muscle Cars' },
