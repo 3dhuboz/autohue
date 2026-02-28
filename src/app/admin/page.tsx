@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '@/components/NavBar';
+import Link from 'next/link';
 
 interface AdminStats {
   totalUsers: number;
@@ -36,7 +37,178 @@ interface Trial {
   user: { id: string; email: string; name: string | null };
 }
 
-type Tab = 'overview' | 'users' | 'trials';
+type Tab = 'overview' | 'users' | 'trials' | 'devtools';
+
+interface StripeCheck {
+  stripeKey: { set: boolean; valid: boolean; mode?: string };
+  webhookSecret: { set: boolean };
+  prices: Record<string, { set: boolean; valid: boolean; amount?: number; interval?: string }>;
+  resendKey: { set: boolean };
+}
+
+function DevToolsInline() {
+  const [stripeCheck, setStripeCheck] = useState<StripeCheck | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailType, setEmailType] = useState('test');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [workerHealth, setWorkerHealth] = useState<Record<string, unknown> | null>(null);
+  const [workerLoading, setWorkerLoading] = useState(false);
+
+  const runStripeCheck = async () => {
+    setStripeLoading(true);
+    try {
+      const res = await fetch('/api/dev/stripe-check');
+      const data = await res.json();
+      setStripeCheck(data);
+    } catch { setStripeCheck(null); }
+    setStripeLoading(false);
+  };
+
+  const sendTestEmail = async () => {
+    if (!emailTo) return;
+    setEmailLoading(true);
+    setEmailResult(null);
+    try {
+      const res = await fetch('/api/dev/email-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: emailType, to: emailTo }),
+      });
+      const data = await res.json();
+      setEmailResult({ success: res.ok, message: res.ok ? `Email sent! ID: ${data.id}` : (data.error || 'Failed') });
+    } catch {
+      setEmailResult({ success: false, message: 'Network error' });
+    }
+    setEmailLoading(false);
+  };
+
+  const checkWorker = async () => {
+    setWorkerLoading(true);
+    try {
+      const res = await fetch('/api/worker/health');
+      const data = await res.json();
+      setWorkerHealth(data);
+    } catch { setWorkerHealth({ error: 'Worker unreachable' }); }
+    setWorkerLoading(false);
+  };
+
+  const StatusDot = ({ ok }: { ok: boolean }) => (
+    <span className={`inline-block w-2 h-2 rounded-full mr-2 ${ok ? 'bg-green-400' : 'bg-red-400'}`} />
+  );
+
+  return (
+    <div className="grid md:grid-cols-2 gap-6">
+      {/* Stripe Config Check */}
+      <div className="glass-card rounded-3xl p-6 red-accent-top">
+        <h2 className="font-heading font-bold text-sm mb-4 flex items-center gap-2">
+          <i className="fab fa-stripe text-purple-400" /> Stripe Configuration
+        </h2>
+        <button onClick={runStripeCheck} disabled={stripeLoading} className="btn-carbon w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 mb-4">
+          {stripeLoading ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-plug" /> Check Stripe Config</>}
+        </button>
+        {stripeCheck && (
+          <div className="space-y-2 text-sm">
+            <div><StatusDot ok={stripeCheck.stripeKey.valid} /> API Key {stripeCheck.stripeKey.valid ? `✓ (${stripeCheck.stripeKey.mode} mode)` : '✗ Invalid'}</div>
+            <div><StatusDot ok={stripeCheck.webhookSecret.set} /> Webhook Secret {stripeCheck.webhookSecret.set ? '✓ Set' : '✗ Missing'}</div>
+            {Object.entries(stripeCheck.prices).map(([plan, info]) => (
+              <div key={plan}><StatusDot ok={info.valid} /> {plan}: {info.valid ? `✓ $${((info.amount || 0)/100).toFixed(0)}/${info.interval}` : info.set ? '✗ Invalid ID' : '✗ Not set'}</div>
+            ))}
+            <div><StatusDot ok={stripeCheck.resendKey.set} /> Resend API Key {stripeCheck.resendKey.set ? '✓ Set' : '✗ Missing'}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Email Test */}
+      <div className="glass-card rounded-3xl p-6">
+        <h2 className="font-heading font-bold text-sm mb-4 flex items-center gap-2">
+          <i className="fas fa-envelope text-blue-400" /> Email Service (Resend)
+        </h2>
+        <div className="space-y-3">
+          <input
+            type="email"
+            value={emailTo}
+            onChange={e => setEmailTo(e.target.value)}
+            placeholder="your@email.com"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-racing-500"
+          />
+          <select
+            value={emailType}
+            onChange={e => setEmailType(e.target.value)}
+            aria-label="Email template"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-racing-500"
+          >
+            <option value="test" className="bg-gray-900">Test Email</option>
+            <option value="welcome" className="bg-gray-900">Welcome</option>
+            <option value="subscription" className="bg-gray-900">Subscription Confirmation</option>
+            <option value="sort-complete" className="bg-gray-900">Sort Complete</option>
+            <option value="payment-failed" className="bg-gray-900">Payment Failed</option>
+          </select>
+          <button onClick={sendTestEmail} disabled={emailLoading || !emailTo} className="btn-racing w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+            {emailLoading ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-paper-plane" /> Send Test Email</>}
+          </button>
+        </div>
+        {emailResult && (
+          <div className={`mt-3 text-sm px-3 py-2 rounded-xl ${emailResult.success ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+            {emailResult.message}
+          </div>
+        )}
+      </div>
+
+      {/* Worker Health */}
+      <div className="glass-card rounded-3xl p-6">
+        <h2 className="font-heading font-bold text-sm mb-4 flex items-center gap-2">
+          <i className="fas fa-server text-green-400" /> Worker / ONNX Engine
+        </h2>
+        <button onClick={checkWorker} disabled={workerLoading} className="btn-carbon w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 mb-4">
+          {workerLoading ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-heartbeat" /> Check Worker Health</>}
+        </button>
+        {workerHealth && (
+          <div className="space-y-2 text-sm">
+            {Object.entries(workerHealth).map(([key, val]) => (
+              <div key={key} className="flex justify-between">
+                <span className="text-white/40">{key}</span>
+                <span className={`font-mono text-xs ${val === 'loaded' || val === 'ok' || val === true ? 'text-green-400' : typeof val === 'string' && (val.includes('NOT') || val.includes('error')) ? 'text-red-400' : 'text-white/60'}`}>
+                  {String(val)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Quick Reference */}
+      <div className="glass-card rounded-3xl p-6">
+        <h2 className="font-heading font-bold text-sm mb-4 flex items-center gap-2">
+          <i className="fas fa-info-circle text-yellow-400" /> Quick Reference
+        </h2>
+        <div className="space-y-3 text-xs">
+          <div className="bg-white/[0.02] rounded-xl p-3 border border-white/5">
+            <div className="font-bold text-white/50 mb-2">Billing Plans (Recurring Monthly)</div>
+            <table className="w-full">
+              <thead><tr className="text-white/30"><th className="text-left py-1">Plan</th><th className="text-right">Price</th><th className="text-right">Credits</th><th className="text-right">Retention</th></tr></thead>
+              <tbody className="text-white/50">
+                <tr><td className="py-0.5">Starter</td><td className="text-right">$29</td><td className="text-right">500</td><td className="text-right">7 days</td></tr>
+                <tr><td className="py-0.5">Pro</td><td className="text-right">$79</td><td className="text-right">5,000</td><td className="text-right">30 days</td></tr>
+                <tr><td className="py-0.5">Enterprise</td><td className="text-right">$199</td><td className="text-right">Unlimited</td><td className="text-right">90 days</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-white/[0.02] rounded-xl p-3 border border-white/5">
+            <div className="font-bold text-white/50 mb-1">Webhook Events Handled</div>
+            <div className="text-white/40 space-y-0.5">
+              <div>• checkout.session.completed → activate sub + email</div>
+              <div>• customer.subscription.updated → sync status</div>
+              <div>• customer.subscription.deleted → downgrade to free</div>
+              <div>• invoice.payment_failed → mark past due + email</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -161,7 +333,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-white/[0.02] rounded-xl p-1 w-fit border border-white/5">
-          {([['overview', 'fa-chart-bar', 'Overview'], ['users', 'fa-users', 'Users'], ['trials', 'fa-key', 'Trials']] as [Tab, string, string][]).map(([key, icon, label]) => (
+          {([['overview', 'fa-chart-bar', 'Overview'], ['users', 'fa-users', 'Users'], ['trials', 'fa-key', 'Trials'], ['devtools', 'fa-tools', 'Dev Tools']] as [Tab, string, string][]).map(([key, icon, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -316,6 +488,19 @@ export default function AdminPage() {
         )}
 
         {/* ═══ TRIALS TAB ═══ */}
+        {/* ═══ DEV TOOLS TAB ═══ */}
+        {tab === 'devtools' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-white/40 text-sm">Email and payment API settings, testing, and verification.</p>
+              <Link href="/admin/dev-tools" className="btn-racing px-5 py-2.5 rounded-xl text-sm flex items-center gap-2">
+                <i className="fas fa-external-link-alt" /> Open Full Dev Tools
+              </Link>
+            </div>
+            <DevToolsInline />
+          </div>
+        )}
+
         {tab === 'trials' && (
           <div className="grid md:grid-cols-2 gap-6">
             {/* Create trial */}
