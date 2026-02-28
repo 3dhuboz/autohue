@@ -2,6 +2,35 @@ import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
 import prisma from '@/lib/prisma';
 
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const session = await requireAuth();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const sortSession = await prisma.sortSession.findFirst({
+    where: { id: params.id, userId: session.user.id, status: { not: 'deleted' } },
+  });
+
+  if (!sortSession) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = sortSession as any;
+  return NextResponse.json({
+    id: s.id,
+    workerSession: s.workerSession,
+    totalImages: s.totalImages,
+    status: s.status,
+    colorCounts: s.colorCounts,
+    creditsUsed: s.creditsUsed,
+    expiresAt: s.expiresAt ?? null,
+    createdAt: s.createdAt,
+    completedAt: s.completedAt,
+  });
+}
+
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const session = await requireAuth();
   if (!session) {

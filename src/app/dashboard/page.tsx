@@ -156,23 +156,24 @@ export default function DashboardPage() {
               {data.recentSessions.map(s => {
                 const expiry = timeUntilExpiry(s.expiresAt);
                 return (
-                  <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-4 bg-white/[0.02] rounded-xl border border-white/5">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 px-4 bg-white/[0.02] rounded-xl border border-white/5 hover:border-white/10 transition-colors group">
+                    <Link href={`/sort/session/${s.id}`} className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer">
                       <div className={`w-2 h-2 rounded-full shrink-0 ${s.status === 'completed' ? 'bg-green-500' : s.status === 'error' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'}`} />
                       <div className="min-w-0">
-                        <div className="text-sm font-bold">{s.totalImages} images</div>
+                        <div className="text-sm font-bold group-hover:text-racing-400 transition-colors">{s.totalImages} images</div>
                         <div className="text-xs text-white/30">{new Date(s.createdAt).toLocaleDateString()} &middot; {s.creditsUsed} credits</div>
                       </div>
-                    </div>
+                      <i className="fas fa-chevron-right text-[10px] text-white/10 group-hover:text-white/30 transition-colors ml-auto sm:hidden" />
+                    </Link>
 
                     {s.colorCounts && (
-                      <div className="flex flex-wrap gap-1 pl-6 sm:pl-0">
+                      <Link href={`/sort/session/${s.id}`} className="flex flex-wrap gap-1 pl-6 sm:pl-0 cursor-pointer">
                         {Object.entries(s.colorCounts as Record<string, number>).slice(0, 4).map(([color, count]) => (
                           <span key={color} className="text-[9px] bg-white/5 rounded px-1.5 py-0.5 text-white/40">
                             {color}: {count}
                           </span>
                         ))}
-                      </div>
+                      </Link>
                     )}
 
                     <div className="flex items-center gap-2 pl-6 sm:pl-0 shrink-0">
@@ -181,10 +182,15 @@ export default function DashboardPage() {
                         <i className="fas fa-clock mr-1" />{expiry.label}
                       </span>
 
+                      {/* Open */}
+                      <Link href={`/sort/session/${s.id}`} className="text-white/20 hover:text-racing-400 transition-colors p-1" title="Open session">
+                        <i className="fas fa-external-link-alt text-xs" />
+                      </Link>
+
                       {/* Download */}
                       {s.status === 'completed' && !expiry.label.includes('Expired') && (
                         <button
-                          onClick={() => window.open(`/api/worker/download/${s.workerSession}`, '_blank')}
+                          onClick={(e) => { e.stopPropagation(); window.open(`/api/worker/download/${s.workerSession}`, '_blank'); }}
                           className="text-white/20 hover:text-racing-400 transition-colors p-1"
                           title="Download sorted ZIP"
                         >
@@ -194,7 +200,7 @@ export default function DashboardPage() {
 
                       {/* Delete */}
                       <button
-                        onClick={() => deleteSession(s.id)}
+                        onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
                         disabled={deleting === s.id}
                         className="text-white/20 hover:text-red-400 transition-colors p-1 disabled:opacity-30"
                         title="Delete session and files"

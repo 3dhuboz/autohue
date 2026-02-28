@@ -966,8 +966,6 @@ app.get('/download/:sessionId', (req, res) => {
 app.get('/browse/:sessionId/:folder', (req, res) => {
     const sessionId = req.params.sessionId;
     const folder = req.params.folder;
-    const session = sessions[sessionId];
-    if (!session) return res.status(404).json({ error: 'Session not found' });
 
     const folderPath = path.join(OUTPUT_DIR, sessionId, folder);
     if (!fs.existsSync(folderPath)) {
@@ -988,8 +986,6 @@ app.get('/browse/:sessionId/:folder', (req, res) => {
 // ─── List all color folders for a session ───
 app.get('/folders/:sessionId', (req, res) => {
     const sessionId = req.params.sessionId;
-    const session = sessions[sessionId];
-    if (!session) return res.status(404).json({ error: 'Session not found' });
 
     const outputDir = path.join(OUTPUT_DIR, sessionId);
     if (!fs.existsSync(outputDir)) return res.json({ folders: [] });
@@ -1013,9 +1009,6 @@ app.post('/reassign', (req, res) => {
     if (!sessionId || !filename || !fromFolder || !toFolder) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
-    const session = sessions[sessionId];
-    if (!session) return res.status(404).json({ error: 'Session not found' });
-
     const srcPath = path.join(OUTPUT_DIR, sessionId, fromFolder, filename);
     if (!fs.existsSync(srcPath)) {
         return res.status(404).json({ error: 'Source file not found' });
@@ -1035,12 +1028,15 @@ app.post('/reassign', (req, res) => {
 
     fs.renameSync(srcPath, path.join(destDir, destName));
 
-    // Update session color counts
-    if (session.colorCounts[fromFolder]) {
-        session.colorCounts[fromFolder]--;
-        if (session.colorCounts[fromFolder] <= 0) delete session.colorCounts[fromFolder];
+    // Update in-memory session color counts if available
+    const session = sessions[sessionId];
+    if (session) {
+        if (session.colorCounts[fromFolder]) {
+            session.colorCounts[fromFolder]--;
+            if (session.colorCounts[fromFolder] <= 0) delete session.colorCounts[fromFolder];
+        }
+        session.colorCounts[toFolder] = (session.colorCounts[toFolder] || 0) + 1;
     }
-    session.colorCounts[toFolder] = (session.colorCounts[toFolder] || 0) + 1;
 
     // Clean up empty source folder
     const srcDir = path.join(OUTPUT_DIR, sessionId, fromFolder);
