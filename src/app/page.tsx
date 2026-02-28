@@ -403,9 +403,12 @@ export default function LandingPage() {
               </span>
             </div>
             <div className="flex items-center gap-6 text-xs text-white/30">
-              <a href="#" className="hover:text-white/60 transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white/60 transition-colors">Terms</a>
-              <a href="#" className="hover:text-white/60 transition-colors">Support</a>
+              <Link href="/privacy" className="hover:text-white/60 transition-colors">Privacy</Link>
+              <Link href="/terms" className="hover:text-white/60 transition-colors">Terms</Link>
+              <Link href="/support" className="hover:text-white/60 transition-colors">Support</Link>
+              <a href="https://www.facebook.com/pennywiseitoz" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors">
+                <i className="fab fa-facebook mr-1" />Penny Wise I.T
+              </a>
               <span>&copy; {new Date().getFullYear()} AutoHue. All rights reserved.</span>
             </div>
           </div>
