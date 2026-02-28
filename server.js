@@ -28,10 +28,11 @@ app.use('/thumbs', express.static(THUMB_DIR));
 app.use(express.json());
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CAR COLOR DETECTION ENGINE v6
-// SSD-MobileNet (fast car detection) + Nyckel cloud color classification
-// Pipeline: detect car → crop body panels → send crop to Nyckel API
-// Falls back to local LAB matching if Nyckel is unavailable
+// CAR COLOR DETECTION ENGINE v7
+// SSD-MobileNet (car detection) + Environment filtering + Multi-region sampling
+// + Nyckel cloud classification + Smart merge with cross-validation
+// Pipeline: detect car → 3-region body sampling → HSV env filter →
+//           median-cut clustering → Nyckel classify → 5-case smart merge
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── Nyckel API configuration ───
@@ -469,84 +470,232 @@ function getChroma(r, g, b) {
     return Math.sqrt(lab.a * lab.a + lab.b * lab.b);
 }
 
+// ─── RGB → HSV conversion ───
+function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0, s = max === 0 ? 0 : d / max, v = max;
+    if (d !== 0) {
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / d + 2) / 6;
+        else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: h * 360, s: s * 100, v: v * 100 };
+}
+
+// ─── Environment pixel detector ───
+// Identifies pixels that are likely background (grass, sky, road, dirt) rather than car paint.
+// Returns a tag string if the pixel is environment, or null if it could be car paint.
+function detectEnvironmentPixel(r, g, b) {
+    const hsv = rgbToHsv(r, g, b);
+    const lab = rgbToLab(r, g, b);
+    const chroma = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+
+    // Green grass/foliage: hue 60-170, moderate-high saturation, moderate value
+    // BUT exclude vivid greens that could be car paint (high saturation + high value)
+    if (hsv.h >= 60 && hsv.h <= 170 && hsv.s > 20 && hsv.v > 15 && hsv.v < 85) {
+        // Natural green (grass/trees) tends to have moderate saturation + muted appearance
+        // Car green paint tends to be more vivid (higher S or higher V)
+        if (hsv.s < 70 && hsv.v < 70) return 'grass';
+        // Also catch bright grass in sunlight
+        if (hsv.s > 25 && hsv.s < 55 && hsv.v > 40 && hsv.v < 80) return 'grass';
+    }
+
+    // Blue sky: hue 190-240, low-medium saturation, high value
+    if (hsv.h >= 190 && hsv.h <= 250 && hsv.s > 10 && hsv.s < 55 && hsv.v > 55) {
+        return 'sky';
+    }
+
+    // Grey asphalt/road: very low chroma, medium lightness
+    if (chroma < 6 && lab.L > 20 && lab.L < 55) {
+        return 'road';
+    }
+
+    // Brown dirt/track surface: hue 15-45, low-medium saturation, low-medium value
+    if (hsv.h >= 15 && hsv.h <= 50 && hsv.s > 15 && hsv.s < 55 && hsv.v > 15 && hsv.v < 55) {
+        return 'dirt';
+    }
+
+    return null;
+}
+
+// ─── Extract pixels from a crop region, with environment filtering ───
+function extractFilteredPixels(image, cx, cy, cw, ch, filterEnvironment) {
+    const crop = image.clone().crop(
+        Math.max(0, cx), Math.max(0, cy),
+        Math.min(cw, image.getWidth() - Math.max(0, cx)),
+        Math.min(ch, image.getHeight() - Math.max(0, cy))
+    );
+    const resized = crop.resize(Math.min(150, crop.getWidth()), Jimp.AUTO);
+    const rw = resized.getWidth(), rh = resized.getHeight();
+
+    const carPixels = [];
+    const envPixels = [];
+    let envCounts = { grass: 0, sky: 0, road: 0, dirt: 0 };
+
+    resized.scan(0, 0, rw, rh, function(x, y, idx) {
+        const r = this.bitmap.data[idx], g = this.bitmap.data[idx+1], b = this.bitmap.data[idx+2];
+        const brightness = (r + g + b) / 3;
+        // Skip pure black/white (overexposed/underexposed)
+        if (brightness > 252 || brightness < 3) return;
+
+        if (filterEnvironment) {
+            const envType = detectEnvironmentPixel(r, g, b);
+            if (envType) {
+                envPixels.push([r, g, b]);
+                envCounts[envType] = (envCounts[envType] || 0) + 1;
+                return;
+            }
+        }
+        carPixels.push([r, g, b]);
+    });
+
+    return { carPixels, envPixels, envCounts };
+}
+
 // ─── Analyze the hero car color in an image ───
-// Pipeline: SSD-MobileNet detects car → crop body panels → Nyckel classifies color
-// Falls back to local LAB matching if Nyckel API is unavailable
+// Pipeline v7: SSD-MobileNet → multi-region sampling → environment filtering →
+//              median-cut clustering → Nyckel cross-check → smart merge
 async function analyzeImageColor(imagePath) {
     try {
         const image = await Jimp.read(imagePath);
         const w = image.getWidth(), h = image.getHeight();
 
-        // ── Step 1: Detect car using SSD-MobileNet (fast: ~1s) ──
+        // ── Step 1: Detect car using SSD-MobileNet ──
         const carBox = await detectCars(image);
         const aiDetected = carBox && carBox.score > 0.3;
 
-        // ── Step 2: Crop to car body panels ──
-        let cropped;
+        // ── Step 2: Multi-region sampling from car body ──
+        // Sample 3 horizontal strips from the car body panel area
+        // This dramatically reduces background contamination vs a single big crop
+        let allCarPixels = [];
+        let envFilterStats = { total: 0, filtered: 0 };
+        let cropForNyckel;
+
         if (aiDetected) {
             const boxH = carBox.bottom - carBox.top;
             const boxW = carBox.right - carBox.left;
 
-            // Take middle 60% of box vertically (skip top 8% = roof glare, bottom 32% = wheels/road)
-            // Shrink sides 15% to cut background edges more aggressively
-            const cropTop = carBox.top + boxH * 0.08;
-            const cropBottom = carBox.top + boxH * 0.68;
-            const cropLeft = carBox.left + boxW * 0.15;
-            const cropRight = carBox.right - boxW * 0.15;
+            // Primary region: middle body panels (the most reliable area)
+            // Skip top 10% (roof/windshield glare), bottom 35% (wheels/road/shadows)
+            // Shrink sides 18% to cut background edges aggressively
+            const regions = [
+                { // Upper body (hood/roof line) — 10-30% of box height
+                    top: carBox.top + boxH * 0.10,
+                    bottom: carBox.top + boxH * 0.30,
+                    left: carBox.left + boxW * 0.20,
+                    right: carBox.right - boxW * 0.20,
+                    weight: 1.0
+                },
+                { // Mid body (doors/fenders) — 25-55% of box height — MOST IMPORTANT
+                    top: carBox.top + boxH * 0.25,
+                    bottom: carBox.top + boxH * 0.55,
+                    left: carBox.left + boxW * 0.15,
+                    right: carBox.right - boxW * 0.15,
+                    weight: 2.0
+                },
+                { // Lower body (rocker panels) — 50-65% of box height
+                    top: carBox.top + boxH * 0.50,
+                    bottom: carBox.top + boxH * 0.65,
+                    left: carBox.left + boxW * 0.20,
+                    right: carBox.right - boxW * 0.20,
+                    weight: 0.8
+                }
+            ];
 
-            const cx = Math.max(0, Math.round(cropLeft * w));
-            const cy = Math.max(0, Math.round(cropTop * h));
-            const cw = Math.max(10, Math.min(Math.round((cropRight - cropLeft) * w), w - cx));
-            const ch = Math.max(10, Math.min(Math.round((cropBottom - cropTop) * h), h - cy));
+            for (const region of regions) {
+                const cx = Math.max(0, Math.round(region.left * w));
+                const cy = Math.max(0, Math.round(region.top * h));
+                const cw = Math.max(10, Math.round((region.right - region.left) * w));
+                const ch = Math.max(10, Math.round((region.bottom - region.top) * h));
 
-            console.log(`  [crop] AI detected (score=${carBox.score.toFixed(2)}) → crop ${cw}x${ch} at (${cx},${cy})`);
-            cropped = image.clone().crop(cx, cy, cw, ch);
+                const { carPixels, envPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
+                envFilterStats.total += carPixels.length + envPixels.length;
+                envFilterStats.filtered += envPixels.length;
+
+                // Weight mid-body pixels more heavily by duplicating them
+                const dupeCount = Math.round(region.weight);
+                for (let d = 0; d < dupeCount; d++) {
+                    allCarPixels.push(...carPixels);
+                }
+            }
+
+            // Create a tighter crop for Nyckel (mid-body only, no env pixels in the image)
+            const midCx = Math.max(0, Math.round((carBox.left + boxW * 0.18) * w));
+            const midCy = Math.max(0, Math.round((carBox.top + boxH * 0.15) * h));
+            const midCw = Math.max(10, Math.round(boxW * 0.64 * w));
+            const midCh = Math.max(10, Math.round(boxH * 0.45 * h));
+            cropForNyckel = image.clone().crop(
+                midCx, midCy,
+                Math.min(midCw, w - midCx),
+                Math.min(midCh, h - midCy)
+            );
+
+            const envPct = envFilterStats.total > 0 ? Math.round(envFilterStats.filtered / envFilterStats.total * 100) : 0;
+            console.log(`  [crop] AI detected (score=${carBox.score.toFixed(2)}) → 3-region sampling, ${allCarPixels.length} car pixels, ${envPct}% env filtered`);
+
         } else {
-            // Fallback: tighter center crop to reduce background contamination
-            const cx = Math.round(w * 0.20), cy = Math.round(h * 0.28);
-            const cw = Math.round(w * 0.60), ch = Math.round(h * 0.45);
-            console.log(`  [crop] No AI detection → center crop ${cw}x${ch} at (${cx},${cy})`);
-            cropped = image.clone().crop(cx, cy, Math.min(cw, w - cx), Math.min(ch, h - cy));
+            // Fallback: tight center crop with environment filtering
+            const cx = Math.round(w * 0.22), cy = Math.round(h * 0.30);
+            const cw = Math.round(w * 0.56), ch = Math.round(h * 0.40);
+
+            const { carPixels, envPixels } = extractFilteredPixels(image, cx, cy, cw, ch, true);
+            allCarPixels = carPixels;
+            envFilterStats.total = carPixels.length + envPixels.length;
+            envFilterStats.filtered = envPixels.length;
+
+            cropForNyckel = image.clone().crop(cx, cy, Math.min(cw, w - cx), Math.min(ch, h - cy));
+
+            const envPct = envFilterStats.total > 0 ? Math.round(envFilterStats.filtered / envFilterStats.total * 100) : 0;
+            console.log(`  [crop] No AI detection → center crop, ${allCarPixels.length} car pixels, ${envPct}% env filtered`);
         }
 
-        // Resize crop for sending to Nyckel (smaller = faster upload)
-        cropped.resize(300, Jimp.AUTO).quality(80);
-        const cropBuffer = await cropped.getBufferAsync(Jimp.MIME_JPEG);
-
-        // ── Step 3: Run BOTH Nyckel cloud + local LAB in parallel ──
+        // ── Step 3: Prepare Nyckel crop + run both classifiers in parallel ──
+        cropForNyckel.resize(300, Jimp.AUTO).quality(80);
+        const cropBuffer = await cropForNyckel.getBufferAsync(Jimp.MIME_JPEG);
         const nyckelPromise = classifyWithNyckel(cropBuffer);
 
-        // Local LAB classification (always run — needed for cross-check)
-        const localCrop = cropped.clone().resize(120, Jimp.AUTO);
-        const lcw = localCrop.getWidth(), lch = localCrop.getHeight();
-        const pixels = [];
-        localCrop.scan(0, 0, lcw, lch, function(x, y, idx) {
-            const r = this.bitmap.data[idx], g = this.bitmap.data[idx+1], b = this.bitmap.data[idx+2];
-            const brightness = (r + g + b) / 3;
-            if (brightness > 253 || brightness < 2) return;
-            pixels.push([r, g, b]);
-        });
-
+        // ── Step 4: Local LAB classification on filtered car pixels ──
         let labResult = null;
-        let allClusters = [];
-        if (pixels.length >= 50) {
-            const clusters = medianCut(pixels, 10);
-            allClusters = clusters.map(c => {
+        if (allCarPixels.length >= 30) {
+            const clusters = medianCut(allCarPixels, 12);
+            const allClusters = clusters.map(c => {
                 const { category, distance } = classifyColorLab(c.rgb[0], c.rgb[1], c.rgb[2]);
                 const chroma = getChroma(c.rgb[0], c.rgb[1], c.rgb[2]);
-                return { ...c, category, distance, chroma };
+                const hsv = rgbToHsv(c.rgb[0], c.rgb[1], c.rgb[2]);
+                // Check if this cluster looks like a car paint color vs environment remnant
+                const envTag = detectEnvironmentPixel(c.rgb[0], c.rgb[1], c.rgb[2]);
+                return { ...c, category, distance, chroma, hsv, isEnvRemnant: !!envTag };
             });
 
+            // Score clusters with improved heuristics
             const scored = allClusters.map(c => {
                 let score = c.pct * 100;
-                if (c.pct > 0.10) score *= 1.5;
-                if (c.pct > 0.20) score *= 1.5;
-                if (c.pct > 0.35) score *= 1.5;
-                if (c.distance < 10) score *= 2.5;
-                else if (c.distance < 18) score *= 2.0;
-                else if (c.distance < 28) score *= 1.3;
-                else score *= 0.4;
-                if (c.chroma > 25) score *= 1.15;
+
+                // Size bonuses (larger clusters = more likely to be the car body)
+                if (c.pct > 0.08) score *= 1.3;
+                if (c.pct > 0.18) score *= 1.4;
+                if (c.pct > 0.30) score *= 1.5;
+
+                // Palette match quality (closer to reference = more likely correct)
+                if (c.distance < 8) score *= 3.0;
+                else if (c.distance < 15) score *= 2.5;
+                else if (c.distance < 22) score *= 1.8;
+                else if (c.distance < 30) score *= 1.0;
+                else score *= 0.3;
+
+                // Chroma bonus — vivid colors are more likely car paint
+                if (c.chroma > 35) score *= 1.3;
+                else if (c.chroma > 20) score *= 1.1;
+
+                // Environment remnant penalty — even after filtering, some slip through
+                if (c.isEnvRemnant) score *= 0.15;
+
+                // Consistency bonus: if the cluster average is very close to a palette entry
+                // AND has reasonable size, it's very likely correct
+                if (c.distance < 12 && c.pct > 0.06) score *= 1.5;
+
                 return { ...c, score };
             }).sort((a, b) => b.score - a.score);
 
@@ -555,143 +704,211 @@ async function analyzeImageColor(imagePath) {
             const agreeing = top5.filter(c => c.category === winner.category).length;
             const hex = `#${winner.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
 
+            // Calculate total coverage for the winning category
+            const winnerCategoryPct = scored
+                .filter(c => c.category === winner.category)
+                .reduce((sum, c) => sum + c.pct, 0);
+
             labResult = {
                 rgb: winner.rgb, category: winner.category, hex, distance: winner.distance,
                 chroma: winner.chroma, pct: winner.pct, agreeing, top5Count: top5.length,
+                winnerCategoryPct,
                 allScored: scored
             };
+
+            console.log(`  [lab] Winner: ${winner.category} (deltaE=${winner.distance.toFixed(1)}, ${Math.round(winnerCategoryPct*100)}% coverage, ${agreeing}/${top5.length} agree, chroma=${winner.chroma.toFixed(0)})`);
         }
 
         const nyckelResult = await nyckelPromise;
 
-        // ── Step 4: Smart merge — Nyckel + LAB cross-check ──
+        // ── Step 5: Smart merge v2 — Nyckel + LAB cross-validation ──
         const ACHROMATIC = new Set(['black', 'white', 'silver-grey']);
         const CHROMATIC = new Set(['red','blue','green','yellow','orange','purple','pink','brown']);
+        // Colors that commonly appear in backgrounds
+        const ENV_COLORS = new Set(['green', 'blue', 'brown']);
 
         if (nyckelResult && nyckelResult.confidence > 0.3) {
             const nyckelCategory = nyckelResult.category;
+            const nyckelConf = nyckelResult.confidence;
 
-            // If Nyckel says a CHROMATIC color → cross-check with LAB first
-            // KEY FIX: Nyckel can be fooled by background (grass, sky, track surface)
-            // If LAB strongly says the car is achromatic, override Nyckel's chromatic call
-            if (CHROMATIC.has(nyckelCategory)) {
-                let trustNyckel = true;
+            if (labResult && labResult.allScored) {
+                const labWinner = labResult.category;
 
-                if (labResult && labResult.allScored) {
-                    // Calculate how much of the crop LAB says is achromatic vs chromatic
-                    const achromaticPct = labResult.allScored
-                        .filter(c => ACHROMATIC.has(c.category))
-                        .reduce((sum, c) => sum + c.pct, 0);
+                // Calculate pixel coverage breakdown
+                const achromaticPct = labResult.allScored
+                    .filter(c => ACHROMATIC.has(c.category))
+                    .reduce((sum, c) => sum + c.pct, 0);
+                const nyckelColorPct = labResult.allScored
+                    .filter(c => c.category === nyckelCategory)
+                    .reduce((sum, c) => sum + c.pct, 0);
+                const labWinnerPct = labResult.winnerCategoryPct;
+                const totalChromaticPct = labResult.allScored
+                    .filter(c => CHROMATIC.has(c.category))
+                    .reduce((sum, c) => sum + c.pct, 0);
 
-                    // How much of the crop matches Nyckel's specific color?
-                    const nyckelColorPct = labResult.allScored
-                        .filter(c => c.category === nyckelCategory)
-                        .reduce((sum, c) => sum + c.pct, 0);
+                console.log(`  [merge] Nyckel=${nyckelCategory}(${Math.round(nyckelConf*100)}%) LAB=${labWinner}(${Math.round(labWinnerPct*100)}%) achro=${Math.round(achromaticPct*100)}% nyckelColor=${Math.round(nyckelColorPct*100)}% chromo=${Math.round(totalChromaticPct*100)}%`);
 
-                    // How much total chromatic coverage does LAB see?
-                    const totalChromaticPct = labResult.allScored
-                        .filter(c => CHROMATIC.has(c.category))
-                        .reduce((sum, c) => sum + c.pct, 0);
-
-                    // LAB winner category
-                    const labWinner = labResult.category;
-
-                    console.log(`  [merge] Nyckel=${nyckelCategory}(${Math.round(nyckelResult.confidence*100)}%) LAB=${labWinner} achromatic=${Math.round(achromaticPct*100)}% nyckelColor=${Math.round(nyckelColorPct*100)}% chromatic=${Math.round(totalChromaticPct*100)}%`);
-
-                    // OVERRIDE Nyckel if:
-                    // 1. LAB says >55% of pixels are achromatic (white/silver/black car body)
-                    // 2. AND Nyckel's chromatic color covers <20% of pixels in LAB
-                    // 3. AND LAB winner IS achromatic
-                    // This catches: white car on green grass, silver car under blue sky, etc.
-                    if (ACHROMATIC.has(labWinner) && achromaticPct > 0.55 && nyckelColorPct < 0.20) {
-                        console.log(`  [merge] OVERRIDE: Nyckel said ${nyckelCategory} but LAB says ${labWinner} (${Math.round(achromaticPct*100)}% achromatic, only ${Math.round(nyckelColorPct*100)}% ${nyckelCategory})`);
-                        trustNyckel = false;
-                    }
-
-                    // Also override if LAB's top scorer is achromatic AND has strong score + agreement
-                    if (ACHROMATIC.has(labWinner) && labResult.agreeing >= 3 && labResult.distance < 20 && nyckelColorPct < 0.25) {
-                        console.log(`  [merge] OVERRIDE (strong LAB): ${labResult.agreeing} clusters agree on ${labWinner}, deltaE=${labResult.distance.toFixed(1)}`);
-                        trustNyckel = false;
-                    }
-                }
-
-                if (trustNyckel) {
+                // ── CASE A: Both agree → high confidence result ──
+                if (nyckelCategory === labWinner) {
+                    console.log(`  [merge] AGREE: both say ${nyckelCategory}`);
                     return {
-                        rgb: labResult ? labResult.rgb : [0,0,0],
-                        category: nyckelCategory,
-                        hex: labResult ? labResult.hex : '#000000',
-                        confidence: nyckelResult.confidence > 0.7 ? 'high' : nyckelResult.confidence > 0.4 ? 'medium' : 'low',
+                        rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
+                        confidence: 'high',
                         nyckelLabel: nyckelResult.nyckelLabel,
-                        nyckelConfidence: Math.round(nyckelResult.confidence * 100),
-                        aiDetected, method: 'nyckel'
+                        nyckelConfidence: Math.round(nyckelConf * 100),
+                        aiDetected, method: 'consensus'
                     };
                 }
 
-                // Nyckel overridden — fall through to use LAB result below
-            }
-
-            // If Nyckel says ACHROMATIC → deep cross-check with ALL LAB clusters
-            // Problem: dark purple, olive green, dark teal get called "black/grey" by Nyckel
-            // Solution: search ALL clusters for any chromatic signal, not just the winner
-            if (ACHROMATIC.has(nyckelCategory) && labResult && labResult.allScored) {
-                // Find the BEST chromatic cluster (might not be the overall winner)
-                const chromaticClusters = labResult.allScored.filter(c =>
-                    CHROMATIC.has(c.category) && c.chroma > 8 && c.distance < 35 && c.pct > 0.03
-                );
-
-                if (chromaticClusters.length > 0) {
-                    // Score chromatic clusters: weight chroma + size + palette match
-                    const bestChromatic = chromaticClusters.sort((a, b) => {
-                        const scoreA = a.chroma * 2 + a.pct * 100 + (35 - a.distance);
-                        const scoreB = b.chroma * 2 + b.pct * 100 + (35 - b.distance);
-                        return scoreB - scoreA;
-                    })[0];
-
-                    // Calculate total chromatic pixel coverage
-                    const chromaticPct = chromaticClusters
-                        .filter(c => c.category === bestChromatic.category)
-                        .reduce((sum, c) => sum + c.pct, 0);
-
-                    // Override if: meaningful chromatic presence (>5% of pixels)
-                    // OR strong chroma signal (even small cluster of vivid color = car paint)
-                    if (chromaticPct > 0.05 || bestChromatic.chroma > 20) {
-                        const hex = `#${bestChromatic.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
+                // ── CASE B: Nyckel says CHROMATIC, LAB says ACHROMATIC ──
+                // This is the "white car on green grass" scenario
+                if (CHROMATIC.has(nyckelCategory) && ACHROMATIC.has(labWinner)) {
+                    // Trust LAB if: achromatic dominates AND Nyckel's color has minimal LAB support
+                    if (achromaticPct > 0.45 && nyckelColorPct < 0.25) {
+                        console.log(`  [merge] OVERRIDE→LAB: Nyckel=${nyckelCategory} but ${Math.round(achromaticPct*100)}% achromatic, only ${Math.round(nyckelColorPct*100)}% ${nyckelCategory}`);
                         return {
-                            rgb: bestChromatic.rgb,
-                            category: bestChromatic.category,
-                            hex,
-                            confidence: bestChromatic.distance < 20 ? 'high' : 'medium',
-                            deltaE: Math.round(bestChromatic.distance * 10) / 10,
-                            nyckelLabel: nyckelResult.nyckelLabel,
-                            nyckelOverridden: true,
-                            chromaticPct: Math.round(chromaticPct * 100),
+                            rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
+                            confidence: labResult.distance < 18 ? 'high' : 'medium',
+                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            deltaE: Math.round(labResult.distance * 10) / 10,
+                            aiDetected, method: 'lab-override'
+                        };
+                    }
+                    // Trust LAB if strong agreement among top clusters
+                    if (labResult.agreeing >= 3 && labResult.distance < 18) {
+                        console.log(`  [merge] OVERRIDE→LAB (strong): ${labResult.agreeing} clusters agree on ${labWinner}, deltaE=${labResult.distance.toFixed(1)}`);
+                        return {
+                            rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
+                            confidence: 'high',
+                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            deltaE: Math.round(labResult.distance * 10) / 10,
                             aiDetected, method: 'lab-override'
                         };
                     }
                 }
 
-                // No meaningful chromatic signal — both agree it's achromatic
+                // ── CASE C: Nyckel says environment-like color (green/blue/brown) ──
+                // Extra skepticism for colors that commonly come from backgrounds
+                if (ENV_COLORS.has(nyckelCategory) && nyckelCategory !== labWinner) {
+                    // If Nyckel's color has <30% pixel support in LAB, don't trust it
+                    if (nyckelColorPct < 0.30 && labWinnerPct > nyckelColorPct) {
+                        console.log(`  [merge] ENV_SKEPTIC: Nyckel=${nyckelCategory}(${Math.round(nyckelColorPct*100)}%) but LAB=${labWinner}(${Math.round(labWinnerPct*100)}%)`);
+                        // Use LAB winner
+                        return {
+                            rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
+                            confidence: labResult.distance < 20 ? 'high' : 'medium',
+                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            deltaE: Math.round(labResult.distance * 10) / 10,
+                            aiDetected, method: 'lab-env-override'
+                        };
+                    }
+                }
+
+                // ── CASE D: Nyckel says ACHROMATIC, LAB says CHROMATIC ──
+                // Nyckel may be seeing shadows/reflections as black/grey/white
+                // but the car is actually a dark chromatic color
+                if (ACHROMATIC.has(nyckelCategory) && CHROMATIC.has(labWinner)) {
+                    // Search all clusters for chromatic signal
+                    const chromaticClusters = labResult.allScored.filter(c =>
+                        CHROMATIC.has(c.category) && c.chroma > 8 && c.distance < 35 && c.pct > 0.03
+                    );
+
+                    if (chromaticClusters.length > 0) {
+                        const bestChromatic = chromaticClusters.sort((a, b) => {
+                            const scoreA = a.chroma * 2 + a.pct * 100 + (35 - a.distance);
+                            const scoreB = b.chroma * 2 + b.pct * 100 + (35 - b.distance);
+                            return scoreB - scoreA;
+                        })[0];
+
+                        const chromaticPct = chromaticClusters
+                            .filter(c => c.category === bestChromatic.category)
+                            .reduce((sum, c) => sum + c.pct, 0);
+
+                        // Override if meaningful chromatic presence
+                        if (chromaticPct > 0.05 || bestChromatic.chroma > 20) {
+                            const hex = `#${bestChromatic.rgb.map(c => Math.max(0,Math.min(255,c)).toString(16).padStart(2,'0')).join('')}`;
+                            console.log(`  [merge] OVERRIDE→CHROMATIC: Nyckel=${nyckelCategory} but LAB found ${bestChromatic.category} (${Math.round(chromaticPct*100)}% coverage, chroma=${bestChromatic.chroma.toFixed(0)})`);
+                            return {
+                                rgb: bestChromatic.rgb, category: bestChromatic.category, hex,
+                                confidence: bestChromatic.distance < 20 ? 'high' : 'medium',
+                                deltaE: Math.round(bestChromatic.distance * 10) / 10,
+                                nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                                chromaticPct: Math.round(chromaticPct * 100),
+                                aiDetected, method: 'lab-chromatic-override'
+                            };
+                        }
+                    }
+
+                    // Both agree it's achromatic
+                    console.log(`  [merge] ACHROMATIC: both agree → ${nyckelCategory}`);
+                    return {
+                        rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
+                        confidence: nyckelConf > 0.7 ? 'high' : 'medium',
+                        nyckelLabel: nyckelResult.nyckelLabel,
+                        nyckelConfidence: Math.round(nyckelConf * 100),
+                        aiDetected, method: 'nyckel'
+                    };
+                }
+
+                // ── CASE E: Both chromatic but disagree ──
+                if (CHROMATIC.has(nyckelCategory) && CHROMATIC.has(labWinner) && nyckelCategory !== labWinner) {
+                    // High-confidence Nyckel + the color exists in LAB → trust Nyckel
+                    if (nyckelConf > 0.65 && nyckelColorPct > 0.10) {
+                        console.log(`  [merge] NYCKEL_WINS: ${nyckelCategory}(${Math.round(nyckelConf*100)}%, ${Math.round(nyckelColorPct*100)}% LAB support)`);
+                        return {
+                            rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
+                            confidence: 'high',
+                            nyckelLabel: nyckelResult.nyckelLabel,
+                            nyckelConfidence: Math.round(nyckelConf * 100),
+                            aiDetected, method: 'nyckel'
+                        };
+                    }
+                    // LAB winner has strong coverage → trust LAB
+                    if (labWinnerPct > 0.40 && labResult.distance < 20) {
+                        console.log(`  [merge] LAB_WINS: ${labWinner}(${Math.round(labWinnerPct*100)}%, deltaE=${labResult.distance.toFixed(1)})`);
+                        return {
+                            rgb: labResult.rgb, category: labWinner, hex: labResult.hex,
+                            confidence: 'high',
+                            nyckelLabel: nyckelResult.nyckelLabel, nyckelOverridden: true,
+                            deltaE: Math.round(labResult.distance * 10) / 10,
+                            aiDetected, method: 'lab-override'
+                        };
+                    }
+                    // Close call: prefer Nyckel if it has reasonable confidence
+                    if (nyckelConf > 0.45) {
+                        console.log(`  [merge] TIEBREAK→NYCKEL: ${nyckelCategory}(${Math.round(nyckelConf*100)}%)`);
+                        return {
+                            rgb: labResult.rgb, category: nyckelCategory, hex: labResult.hex,
+                            confidence: 'medium',
+                            nyckelLabel: nyckelResult.nyckelLabel,
+                            nyckelConfidence: Math.round(nyckelConf * 100),
+                            aiDetected, method: 'nyckel-tiebreak'
+                        };
+                    }
+                }
+            }
+
+            // Nyckel available but no LAB data — trust Nyckel
+            if (!labResult) {
                 return {
-                    rgb: labResult.rgb,
-                    category: nyckelCategory,
-                    hex: labResult.hex,
-                    confidence: nyckelResult.confidence > 0.7 ? 'high' : 'medium',
+                    rgb: [0,0,0], category: nyckelCategory, hex: '#000000',
+                    confidence: nyckelConf > 0.7 ? 'high' : nyckelConf > 0.4 ? 'medium' : 'low',
                     nyckelLabel: nyckelResult.nyckelLabel,
-                    nyckelConfidence: Math.round(nyckelResult.confidence * 100),
-                    aiDetected, method: 'nyckel'
+                    nyckelConfidence: Math.round(nyckelConf * 100),
+                    aiDetected, method: 'nyckel-only'
                 };
             }
         }
 
-        // ── Step 5: Nyckel failed — use local LAB only ──
+        // ── Step 6: Nyckel failed — use local LAB only ──
         if (!labResult) {
             return { rgb: [128,128,128], category: 'unknown', hex: '#808080', confidence: 'none', method: 'none' };
         }
 
         let confidence = 'medium';
-        if (labResult.distance < 18 && (labResult.agreeing >= 2 || labResult.pct > 0.12)) confidence = 'high';
-        if (aiDetected && labResult.distance < 22) confidence = 'high';
-        if (labResult.distance > 35 && labResult.agreeing < 2) confidence = 'low';
+        if (labResult.distance < 15 && (labResult.agreeing >= 2 || labResult.pct > 0.12)) confidence = 'high';
+        if (aiDetected && labResult.distance < 20) confidence = 'high';
+        if (labResult.distance > 30 && labResult.agreeing < 2) confidence = 'low';
 
         return {
             rgb: labResult.rgb,
