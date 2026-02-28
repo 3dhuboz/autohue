@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { stripe } from '@/lib/stripe';
+import { stripe, PLANS } from '@/lib/stripe';
 import { syncPlanCredits } from '@/lib/credits';
 import type { PlanKey } from '@/lib/stripe';
 import prisma from '@/lib/prisma';
 import type Stripe from 'stripe';
+import { sendSubscriptionEmail, sendPaymentFailedEmail } from '@/lib/email';
 
 export async function POST(req: Request) {
   const body = await req.text();
@@ -57,6 +58,23 @@ export async function POST(req: Request) {
         });
 
         await syncPlanCredits(userId, plan);
+
+        // Send subscription confirmation email
+        try {
+          const user = await prisma.user.findUnique({ where: { id: userId } });
+          if (user?.email) {
+            const planConfig = PLANS[plan];
+            await sendSubscriptionEmail(
+              user.email,
+              user.name || '',
+              planConfig.name,
+              planConfig.price,
+              new Date(periodEnd * 1000)
+            );
+          }
+        } catch (emailErr) {
+          console.error('Failed to send subscription email:', emailErr);
+        }
         break;
       }
 
@@ -106,6 +124,32 @@ export async function POST(req: Request) {
         });
 
         await syncPlanCredits(dbSub.userId, 'FREE');
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = invoice.customer as string;
+        const dbSub = await prisma.subscription.findFirst({
+          where: { stripeCustomerId: customerId },
+        });
+        if (!dbSub) break;
+
+        // Mark subscription as past due
+        await prisma.subscription.update({
+          where: { userId: dbSub.userId },
+          data: { status: 'PAST_DUE' },
+        });
+
+        // Send payment failed email
+        try {
+          const user = await prisma.user.findUnique({ where: { id: dbSub.userId } });
+          if (user?.email) {
+            await sendPaymentFailedEmail(user.email, user.name || '', dbSub.plan);
+          }
+        } catch (emailErr) {
+          console.error('Failed to send payment failed email:', emailErr);
+        }
         break;
       }
     }

@@ -22,7 +22,8 @@ const TIERS = [
     name: 'Starter',
     price: 29,
     images: '500',
-    features: ['500 images/month', 'AI car detection', '13 color categories', 'ZIP download', 'Quick reassign'],
+    retention: '7 days',
+    features: ['500 images/month', 'AI car detection', '13 color categories', 'ZIP download', 'Quick reassign', '7-day file storage'],
     popular: false,
     cta: 'Get Started',
   },
@@ -30,7 +31,8 @@ const TIERS = [
     name: 'Pro',
     price: 79,
     images: '5,000',
-    features: ['5,000 images/month', 'Everything in Starter', 'Watermark editor', 'Priority processing', 'Email support'],
+    retention: '30 days',
+    features: ['5,000 images/month', 'Everything in Starter', 'Watermark editor', 'Priority processing', 'Email support', '30-day file storage'],
     popular: true,
     cta: 'Go Pro',
   },
@@ -38,7 +40,8 @@ const TIERS = [
     name: 'Enterprise',
     price: 199,
     images: 'Unlimited',
-    features: ['Unlimited images', 'Everything in Pro', 'API access', 'Custom color categories', 'Dedicated support', 'SLA guarantee'],
+    retention: '90 days',
+    features: ['Unlimited images', 'Everything in Pro', 'API access', 'Custom color categories', 'Dedicated support', 'SLA guarantee', '90-day file storage'],
     popular: false,
     cta: 'Contact Sales',
   },
@@ -429,6 +432,10 @@ export default function LandingPage() {
                     <span className="text-white/30 text-sm">/month</span>
                   </div>
                   <p className="text-xs text-white/30 mt-2">{tier.images} images/month</p>
+                  <div className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-0.5 rounded-full bg-racing-600/10 border border-racing-600/20 text-[10px] text-racing-400 font-semibold">
+                    <i className="fas fa-database text-[8px]" />
+                    {tier.retention} storage
+                  </div>
                 </div>
                 <ul className="space-y-3 mb-8">
                   {tier.features.map((f, i) => (

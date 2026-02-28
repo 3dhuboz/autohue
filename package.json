@@ -27,6 +27,7 @@
     "onnxruntime-node": "^1.24.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "resend": "^6.9.3",
     "stripe": "^20.4.0",
     "unzipper": "^0.12.3",
     "uuid": "^13.0.0"
