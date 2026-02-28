@@ -1053,6 +1053,11 @@ app.post('/reassign', (req, res) => {
     res.json({ success: true, filename: destName, from: fromFolder, to: toFolder });
 });
 
+// ─── Health check ───
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', model: onnxSession ? 'loaded' : 'fallback' });
+});
+
 // ─── Serve output images for browsing ───
 app.use('/output', express.static(OUTPUT_DIR));
 
