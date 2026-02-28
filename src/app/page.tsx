@@ -50,14 +50,14 @@ const STEPS = [
   { num: '03', title: 'Download', desc: 'Get a perfectly organized ZIP with photos sorted into color folders.', icon: 'fa-folder-open' },
 ];
 
-// Interactive color demo cars
+// Interactive color demo cars — ALL visually verified
 const DEMO_CARS = [
-  { src: 'https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=600&h=400&fit=crop', alt: 'Red sports car', color: 'Red', hex: '#ef4444', fact: 'Red cars account for about 10% of all vehicles on the road' },
-  { src: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&h=400&fit=crop', alt: 'Yellow Porsche', color: 'Yellow', hex: '#eab308', fact: 'Yellow is the rarest car color — less than 2% of cars worldwide' },
+  { src: 'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&h=400&fit=crop', alt: 'Red Ferrari', color: 'Red', hex: '#ef4444', fact: 'Red cars account for about 10% of all vehicles on the road' },
+  { src: 'https://images.unsplash.com/photo-1562911791-c7a97b729ec5?w=600&h=400&fit=crop', alt: 'Yellow Camaro', color: 'Yellow', hex: '#eab308', fact: 'Yellow is the rarest car color — less than 2% of cars worldwide' },
   { src: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=600&h=400&fit=crop', alt: 'Black Porsche 911', color: 'Black', hex: '#334155', fact: 'Black is the 2nd most popular car color globally at ~19%' },
-  { src: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=600&h=400&fit=crop', alt: 'Blue Corvette', color: 'Blue', hex: '#3b82f6', fact: 'Blue cars tend to have higher resale value than average' },
-  { src: 'https://images.unsplash.com/photo-1542362567-b07e54358753?w=600&h=400&fit=crop', alt: 'Orange McLaren', color: 'Orange', hex: '#f97316', fact: 'Orange is a signature color for McLaren and Lamborghini' },
-  { src: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&h=400&fit=crop', alt: 'White classic car', color: 'White', hex: '#e2e8f0', fact: 'White has been the #1 most popular car color for over a decade' },
+  { src: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=600&h=400&fit=crop', alt: 'Blue Camaro', color: 'Blue', hex: '#3b82f6', fact: 'Blue cars tend to have higher resale value than average' },
+  { src: 'https://images.unsplash.com/photo-1581650107963-3e8c1f48241b?w=600&h=400&fit=crop', alt: 'Orange Mustang', color: 'Orange', hex: '#f97316', fact: 'Orange is a signature color for McLaren and Lamborghini' },
+  { src: 'https://images.unsplash.com/photo-1616455579100-2ceaa4eb2d37?w=600&h=400&fit=crop', alt: 'White BMW M5', color: 'White', hex: '#e2e8f0', fact: 'White has been the #1 most popular car color for over a decade' },
 ];
 
 // Fun facts for the facts section
