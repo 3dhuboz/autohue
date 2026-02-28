@@ -1,0 +1,335 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* ═══════════════════════════════════════════
+   AutoHue — Red/Black Racing Theme
+   ═══════════════════════════════════════════ */
+
+:root {
+  --racing-red: #dc2626;
+  --racing-red-bright: #ef4444;
+  --racing-red-dark: #991b1b;
+  --racing-glow: rgba(220, 38, 38, 0.4);
+  --carbon-bg: #0a0a0a;
+  --carbon-card: rgba(255, 255, 255, 0.03);
+  --carbon-border: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Base ── */
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--carbon-bg);
+  color: #e5e5e5;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+/* ── Racing mesh background ── */
+.racing-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 15% 50%, rgba(220, 38, 38, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 30%, rgba(220, 38, 38, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(239, 68, 68, 0.04) 0%, transparent 40%),
+    var(--carbon-bg);
+}
+
+/* ── Carbon fiber texture overlay ── */
+.carbon-texture {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.015) 0px,
+    rgba(255, 255, 255, 0.015) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+/* ── Glass cards (racing dark) ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.3s ease;
+}
+.glass-card:hover {
+  border-color: rgba(220, 38, 38, 0.15);
+}
+.glass-card-solid {
+  background: rgba(15, 15, 15, 0.95);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Red accent line (top of cards) ── */
+.red-accent-top {
+  position: relative;
+}
+.red-accent-top::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--racing-red), transparent);
+  border-radius: 2px;
+}
+
+/* ── Buttons ── */
+.btn-racing {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: white;
+  font-weight: 700;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  position: relative;
+  overflow: hidden;
+}
+.btn-racing:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 30px rgba(220, 38, 38, 0.5);
+}
+.btn-racing:active {
+  transform: translateY(0) scale(0.98);
+}
+.btn-racing:disabled {
+  opacity: 0.4;
+  transform: none;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-carbon {
+  background: linear-gradient(135deg, #1a1a1a, #0e0e0e);
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+}
+.btn-carbon:hover {
+  border-color: rgba(220, 38, 38, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Glow effects ── */
+.glow-red {
+  box-shadow: 0 0 40px rgba(220, 38, 38, 0.3), 0 0 80px rgba(220, 38, 38, 0.1);
+}
+.glow-red-strong {
+  box-shadow: 0 0 30px rgba(220, 38, 38, 0.5), 0 0 60px rgba(220, 38, 38, 0.2), 0 0 120px rgba(220, 38, 38, 0.1);
+}
+.text-glow-red {
+  text-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
+}
+
+/* ── Racing stripe ── */
+.racing-stripe {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(220, 38, 38, 0.1) 30%,
+    rgba(220, 38, 38, 0.2) 50%,
+    rgba(220, 38, 38, 0.1) 70%,
+    transparent 100%
+  );
+}
+
+/* ── Drop zone ── */
+.drop-zone {
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
+}
+.drop-zone.dragover {
+  transform: scale(1.02);
+  border-color: var(--racing-red);
+  box-shadow: 0 0 60px rgba(220, 38, 38, 0.3), inset 0 0 60px rgba(220, 38, 38, 0.03);
+}
+.drop-zone:hover {
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+/* ── Tachometer gauge ── */
+.gauge-container {
+  position: relative;
+  width: 200px;
+  height: 200px;
+}
+.gauge-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 12;
+  stroke-linecap: round;
+}
+.gauge-fill {
+  fill: none;
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  filter: drop-shadow(0 0 6px var(--racing-glow));
+}
+.gauge-fill-red {
+  stroke: url(#gaugeGradientRed);
+}
+.gauge-fill-green {
+  stroke: url(#gaugeGradientGreen);
+}
+.gauge-fill-amber {
+  stroke: url(#gaugeGradientAmber);
+}
+
+/* Gauge needle */
+.gauge-needle {
+  transform-origin: center center;
+  transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Speed counter (digital readout) ── */
+.digital-readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.5); }
+
+/* ── Animations ── */
+@keyframes revCounter {
+  0% { opacity: 0; transform: scale(0.8); }
+  50% { transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes redlinePulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes checkeredFlag {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+.animate-rev {
+  animation: revCounter 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+.animate-redline {
+  animation: redlinePulse 0.8s ease-in-out infinite;
+}
+
+/* ── Staggered children ── */
+.stagger > * { animation: fadeUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger > *:nth-child(6) { animation-delay: 0.3s; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Landing page specific ── */
+.hero-gradient {
+  background: linear-gradient(180deg,
+    rgba(220, 38, 38, 0.08) 0%,
+    transparent 40%,
+    transparent 60%,
+    rgba(220, 38, 38, 0.04) 100%
+  );
+}
+
+.pricing-card-popular {
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 0 40px rgba(220, 38, 38, 0.15);
+}
+
+/* ── Color swatch cards ── */
+.color-card {
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.color-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.color-card:hover {
+  transform: translateY(-8px) scale(1.03);
+}
+.color-card:hover::before {
+  opacity: 1;
+}
+
+/* ── Showcase cards ── */
+.showcase-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.showcase-card:hover {
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 8px 30px rgba(220, 38, 38, 0.2), 0 0 0 1px rgba(220, 38, 38, 0.1);
+  transform: translateY(-4px) scale(1.03);
+  z-index: 10;
+}
+
+/* ── Gallery strip ── */
+.gallery-scroll {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+@media (min-width: 768px) {
+  .gallery-scroll {
+    flex-wrap: nowrap;
+    justify-content: center;
+  }
+}
+.gallery-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.5s ease;
+}
+.gallery-card:hover {
+  border-color: rgba(220, 38, 38, 0.3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(220, 38, 38, 0.1);
+  transform: translateY(-6px);
+}
+
+/* ── Animation delays ── */
+.anim-delay-1 { animation-delay: 0.1s; }
+.anim-delay-2 { animation-delay: 0.2s; }
+.anim-delay-3 { animation-delay: 0.3s; }
+.anim-delay-4 { animation-delay: 0.4s; }
+
+.animate-fade-up {
+  animation: fadeUp 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+/* ── Checkered flag pattern ── */
+.checkered-bg {
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}

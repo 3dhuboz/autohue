@@ -1,0 +1,17 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npx prisma generate && next build",
+  "installCommand": "npm install",
+  "outputDirectory": ".next",
+  "env": {
+    "WORKER_URL": "@worker-url",
+    "DATABASE_URL": "@database-url",
+    "NEXTAUTH_SECRET": "@nextauth-secret",
+    "NEXTAUTH_URL": "@nextauth-url",
+    "STRIPE_SECRET_KEY": "@stripe-secret-key",
+    "STRIPE_WEBHOOK_SECRET": "@stripe-webhook-secret",
+    "STRIPE_STARTER_PRICE_ID": "@stripe-starter-price-id",
+    "STRIPE_PRO_PRICE_ID": "@stripe-pro-price-id",
+    "STRIPE_ENTERPRISE_PRICE_ID": "@stripe-enterprise-price-id"
+  }
+}
