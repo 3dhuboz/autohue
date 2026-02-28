@@ -14,6 +14,7 @@ const nextConfig = {
     remotePatterns: [
       { protocol: 'http', hostname: 'localhost' },
       { protocol: 'https', hostname: '*.vercel.app' },
+      { protocol: 'https', hostname: '*.up.railway.app' },
       { protocol: 'https', hostname: 'images.unsplash.com' },
     ],
   },
