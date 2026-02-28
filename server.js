@@ -8,10 +8,6 @@ const crypto = require('crypto');
 const unzipper = require('unzipper');
 const { createExtractorFromFile } = require('node-unrar-js');
 const ort = require('onnxruntime-node');
-const { pipeline, env: transformersEnv } = require('@xenova/transformers');
-
-// Configure Transformers.js to cache models locally
-transformersEnv.cacheDir = path.join(__dirname, 'models', 'transformers-cache');
 
 const app = express();
 const PORT = process.env.PORT || process.env.WORKER_PORT || 3001;
