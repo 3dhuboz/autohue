@@ -96,8 +96,8 @@ export default function SortPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageCount: files.length }),
       });
-      const creditData = await creditCheck.json();
       if (!creditCheck.ok) {
+        const creditData = await creditCheck.json().catch(() => ({ error: 'Credit check failed' }));
         setCreditError(creditData.error || 'Credit check failed');
         return;
       }
@@ -111,8 +111,11 @@ export default function SortPage() {
 
     try {
       const res = await fetch(`${WORKER_BASE}/upload`, { method: 'POST', body: formData });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || 'Processing worker is not available. Please try again later.');
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
 
       setSessionId(data.session_id);
       cursorRef.current = 0;
@@ -125,7 +128,7 @@ export default function SortPage() {
       setPhase('processing');
       startPolling(data.session_id);
     } catch (err: unknown) {
-      alert('Error: ' + (err instanceof Error ? err.message : 'Upload failed'));
+      setCreditError(err instanceof Error ? err.message : 'Processing worker is not available.');
     }
   };
 
